@@ -1,0 +1,3 @@
+./game_handler.go
+./hero_handler.go
+./room_handler.go

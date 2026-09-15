@@ -1,0 +1,20 @@
+USE kpl_bp;
+INSERT INTO team(name,logo_url) VALUES
+('重庆狼队','images/teams/chongqin_wolves.png'),
+('成都AG超玩会','images/teams/chengdu_ag.png'),
+('北京WB','images/teams/beijing_wb.png'),
+('长沙TES.A','images/teams/changsha_tes_a.png'),
+('广州TTG','images/teams/guangzhou_ttg.png'),
+('北京JDG','images/teams/beijing_jdg.png'),
+('上海EDGM','images/teams/shanghai_edgm.png'),
+('上海RNGM','images/teams/shanghai_rngm.png'),
+('南通HERO','images/teams/nantong_hero.png'),
+('西安WE','images/teams/xian_we.png'),
+('SYG','images/teams/syg.png'),
+('KSG','images/teams/ksg.png'),
+('济南RW侠','images/teams/jinan_rw_xia.png'),
+('WST','images/teams/wst.png'),
+('杭州LDG.NBW','images/teams/hangzhou_ldg_nbw.png'),
+('深圳DYG','images/teams/shenzhen_dyg.png'),
+('武汉eStar.Pro','images/teams/wuhan_estar_pro.png'),
+('佛山DRG','images/teams/foshan_drg.png');

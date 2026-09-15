@@ -1,0 +1,11 @@
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App'
+
+// TODO: 渲染 React 根组件
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+)

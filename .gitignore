@@ -1,0 +1,46 @@
+# KPL BP Simulator - .gitignore
+
+# Dependencies
+node_modules/
+vendor/
+
+# Build output
+dist/
+build/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+gopath/
+.gopath/
+.gopath_old/
+
+# Go build cache
+.gocache/
+.gomodcache/
+
+# npm
+package-lock.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.local
+
+# Docker
+*.pid
