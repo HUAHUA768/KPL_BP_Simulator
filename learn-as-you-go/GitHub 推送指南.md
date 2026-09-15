@@ -12,7 +12,7 @@ git log --oneline
 
 ```
 e8d1415 Add detailed GitHub push guide
-c28e60b Add learning documentation in 边学边做/README.md
+c28e60b Add learning documentation in learn-as-you-go/README.md
 f6810bd Initial commit: KPL BP Simulator project (React + Go + MySQL + Redis)
 ```
 
