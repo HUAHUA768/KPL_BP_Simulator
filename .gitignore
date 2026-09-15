@@ -1,8 +1,15 @@
 # KPL BP Simulator - .gitignore
 
-# Dependencies
+# External dependencies
 node_modules/
 vendor/
+
+# Go standard library and test files (exclude the entire go directory)
+go/
+
+# Build output
+dist/
+build/
 
 # Build output
 dist/
