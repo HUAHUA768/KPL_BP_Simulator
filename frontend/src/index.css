@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================================
+   全局基础样式
+   ========================================================================== */
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    @apply bg-gray-900 text-gray-100 antialiased;
+    font-family:
+      'PingFang SC', 'Microsoft YaHei', 'Hiragino Sans GB', system-ui, -apple-system,
+      'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    margin: 0;
+  }
+}
+
+@layer components {
+  /* 所有操作按钮 / 筛选按钮统一居中排列 */
+  .btn-row {
+    @apply flex flex-wrap items-center justify-center gap-2;
+  }
+}

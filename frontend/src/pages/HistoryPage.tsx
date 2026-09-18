@@ -39,16 +39,15 @@ const HistoryPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-900 p-4">
       <div className="max-w-7xl mx-auto">
-        {/* 顶部导航 */}
-        <div className="flex items-center justify-between mb-6">
+        {/* 顶部导航（居中） */}
+        <div className="relative mb-6 flex items-center justify-center">
           <button
-            className="text-gray-400 hover:text-white transition-colors"
+            className="absolute left-0 rounded-md border border-gray-700 bg-gray-800/60 px-3 py-1.5 text-sm text-gray-300 transition-colors hover:border-gray-500 hover:text-white"
             onClick={() => navigate('/')}
           >
             ← 返回首页
           </button>
-          <h1 className="text-2xl font-bold text-white">📋 历史对局</h1>
-          <div className="w-20" /> {/* 占位保持居中 */}
+          <h1 className="text-center text-2xl font-bold text-white">📋 历史对局</h1>
         </div>
 
         {/* 错误提示 */}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useMemo } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import BanPickBoard from '../components/BanPickBoard'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -6,6 +6,10 @@ import { useBPState } from '../hooks/useBPState'
 import { getRoomStatus, getHeroes, banHero, pickHero } from '../services/api'
 import { useBPStore } from '../store/bpStore'
 import type { Hero } from '../types'
+
+// 分路常量
+const LANES = ['全部', '对抗路', '中路', '发育路', '打野', '游走'] as const
+type Lane = (typeof LANES)[number]
 
 const BPRoom: React.FC = () => {
   const { id: roomId } = useParams<{ id: string }>()
@@ -19,6 +23,13 @@ const BPRoom: React.FC = () => {
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [selectedLane, setSelectedLane] = useState<Lane>('全部')
+
+  // 根据选中的分路过滤英雄
+  const filteredHeroes = useMemo(() => {
+    if (selectedLane === '全部') return bpState.heroList
+    return bpState.heroList.filter((hero) => hero.lanes.includes(selectedLane))
+  }, [bpState.heroList, selectedLane])
 
   // WebSocket 连接
   const { ban: wsBan, pick: wsPick } = useWebSocket(roomId || '', mySide)
@@ -77,16 +88,17 @@ const BPRoom: React.FC = () => {
     <div className="min-h-screen bg-gray-900 p-4">
       {/* 顶部导航 */}
       <div className="max-w-7xl mx-auto">
-        <div className="flex items-center justify-between mb-4">
+        <div className="mb-4 flex flex-wrap items-center justify-center gap-x-4 gap-y-2">
           <button
-            className="text-gray-400 hover:text-white transition-colors"
+            className="rounded-md border border-gray-700 bg-gray-800/60 px-3 py-1.5 text-sm text-gray-300 transition-colors hover:border-gray-500 hover:text-white"
             onClick={() => navigate('/')}
           >
             ← 返回首页
           </button>
-          <div className="text-gray-400 text-sm">
+          <div className="text-center text-sm text-gray-400">
             房间: <span className="text-yellow-400">{roomId}</span>
-            &nbsp;|&nbsp; 你:
+            <span className="mx-2 text-gray-600">|</span>
+            你:
             <span className={mySide === 'blue' ? 'text-blue-400' : 'text-red-400'}>
               {mySide === 'blue' ? ' 🔵 蓝方' : ' 🔴 红方'}
             </span>
@@ -113,10 +125,28 @@ const BPRoom: React.FC = () => {
           </div>
         )}
 
+        {/* 分路筛选栏（居中） */}
+        <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
+          <span className="mr-1 text-sm text-gray-400">分路:</span>
+          {LANES.map((lane) => (
+            <button
+              key={lane}
+              className={`rounded-full px-4 py-1.5 text-center text-sm font-medium transition-colors duration-200 ${
+                selectedLane === lane
+                  ? 'bg-yellow-500 text-gray-900'
+                  : 'bg-gray-700/60 text-gray-300 hover:bg-gray-600 hover:text-white'
+              }`}
+              onClick={() => setSelectedLane(lane)}
+            >
+              {lane}
+            </button>
+          ))}
+        </div>
+
         {/* BP 棋盘 */}
         <BanPickBoard
-          heroes={bpState.heroList}
-          heroesByLane={bpState.heroesByLane}
+          heroes={filteredHeroes}
+          allHeroes={bpState.heroList}
           blueBanned={bpState.blueBanned}
           redBanned={bpState.redBanned}
           bluePicked={bpState.bluePicked}

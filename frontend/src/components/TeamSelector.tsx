@@ -33,7 +33,7 @@ const TeamSelector: React.FC<TeamSelectorProps> = ({ onSelect, loading = false }
   }
 
   return (
-    <div className="bg-gray-800/70 rounded-lg p-6 border border-gray-700 max-w-md mx-auto">
+    <div className="bg-gray-800/70 rounded-lg p-6 border border-gray-700 max-w-2xl mx-auto">
       <h2 className="text-xl font-bold text-white mb-4 text-center">
         选择对战队伍
       </h2>
@@ -44,51 +44,80 @@ const TeamSelector: React.FC<TeamSelectorProps> = ({ onSelect, loading = false }
         </div>
       )}
 
-      {/* 蓝方选择 */}
-      <div className="mb-4">
-        <label className="block text-sm text-blue-400 mb-2">🔵 蓝方 (先Ban方)</label>
-        <select
-          className="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none"
-          value={blueTeam?.id || ''}
-          onChange={(e) => {
-            const id = Number(e.target.value)
-            const team = teams.find((t) => t.id === id)
-            setBlueTeam(team || null)
-          }}
-        >
-          <option value="">-- 选择蓝方 --</option>
-          {teams.map((team) => (
-            <option key={team.id} value={team.id}>
-              {team.name}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* 蓝方 VS 红方 - 同一行 */}
+      <div className="flex items-center gap-4 mb-6">
+        {/* 蓝方选择 */}
+        <div className="flex-1">
+          <label className="block text-sm text-blue-400 mb-2 text-center">🔵 蓝方 (先 Ban 方)</label>
+          <select
+            className="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-blue-500 focus:outline-none text-center"
+            value={blueTeam?.id || ''}
+            onChange={(e) => {
+              const id = Number(e.target.value)
+              const team = teams.find((t) => t.id === id)
+              setBlueTeam(team || null)
+            }}
+          >
+            <option value="">-- 选择蓝方 --</option>
+            {teams.map((team) => (
+              <option key={team.id} value={team.id}>
+                {team.name}
+              </option>
+            ))}
+          </select>
+          {/* 蓝方队标 */}
+          {blueTeam && (
+            <div className="mt-3 flex justify-center">
+              <img
+                src={blueTeam.logoUrl}
+                alt={blueTeam.name}
+                className="w-16 h-16 object-contain"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none'
+                }}
+              />
+            </div>
+          )}
+        </div>
 
-      {/* VS */}
-      <div className="text-center text-2xl font-bold text-yellow-400 mb-4">
-        VS
-      </div>
+        {/* VS */}
+        <div className="text-2xl font-bold text-yellow-400 flex-shrink-0 pt-6">
+          VS
+        </div>
 
-      {/* 红方选择 */}
-      <div className="mb-6">
-        <label className="block text-sm text-red-400 mb-2">🔴 红方 (后Ban方)</label>
-        <select
-          className="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-red-500 focus:outline-none"
-          value={redTeam?.id || ''}
-          onChange={(e) => {
-            const id = Number(e.target.value)
-            const team = teams.find((t) => t.id === id)
-            setRedTeam(team || null)
-          }}
-        >
-          <option value="">-- 选择红方 --</option>
-          {teams.map((team) => (
-            <option key={team.id} value={team.id}>
-              {team.name}
-            </option>
-          ))}
-        </select>
+        {/* 红方选择 */}
+        <div className="flex-1">
+          <label className="block text-sm text-red-400 mb-2 text-center">🔴 红方 (后 Ban 方)</label>
+          <select
+            className="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-white focus:border-red-500 focus:outline-none text-center"
+            value={redTeam?.id || ''}
+            onChange={(e) => {
+              const id = Number(e.target.value)
+              const team = teams.find((t) => t.id === id)
+              setRedTeam(team || null)
+            }}
+          >
+            <option value="">-- 选择红方 --</option>
+            {teams.map((team) => (
+              <option key={team.id} value={team.id}>
+                {team.name}
+              </option>
+            ))}
+          </select>
+          {/* 红方队标 */}
+          {redTeam && (
+            <div className="mt-3 flex justify-center">
+              <img
+                src={redTeam.logoUrl}
+                alt={redTeam.name}
+                className="w-16 h-16 object-contain"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).style.display = 'none'
+                }}
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 开始按钮 */}

@@ -87,11 +87,21 @@ export async function getTeams(): Promise<Team[]> {
   // 目前后端没有独立的 /api/teams 端点，返回预设列表
   // 实际项目里应添加对应端点
   return [
-    { id: 1, name: 'AG超玩会', logoUrl: '/images/teams/ag.png' },
-    { id: 2, name: '重庆狼队', logoUrl: '/images/teams/wolves.png' },
-    { id: 3, name: '武汉eStarPro', logoUrl: '/images/teams/estar.png' },
-    { id: 4, name: '广州TTG', logoUrl: '/images/teams/ttg.png' },
-    { id: 5, name: '深圳DYG', logoUrl: '/images/teams/dyg.png' },
-    { id: 6, name: '济南RW侠', logoUrl: '/images/teams/rw.png' },
+    { id: 1, name: 'AG 超玩会', logoUrl: '/images/teams/chengdu_ag.png' },
+    { id: 2, name: '重庆狼队', logoUrl: '/images/teams/chongqin_wolves.png' },
+    { id: 3, name: '武汉 eStarPro', logoUrl: '/images/teams/wuhan_estar_pro.png' },
+    { id: 4, name: '广州 TTG', logoUrl: '/images/teams/guangzhou_ttg.png' },
+    { id: 5, name: '深圳 DYG', logoUrl: '/images/teams/shenzhen_dyg.png' },
+    { id: 6, name: '济南 RW 侠', logoUrl: '/images/teams/jinan_rw_xia.png' },
+    { id: 7, name: '北京 WB', logoUrl: '/images/teams/beijing_wb.png' },
+    { id: 8, name: '北京 JDG', logoUrl: '/images/teams/beijing_jdg.png' },
+    { id: 9, name: '长沙 TES.A', logoUrl: '/images/teams/changsha_tes_a.png' },
+    { id: 10, name: '佛山 DRG', logoUrl: '/images/teams/foshan_drg.png' },
+    { id: 11, name: '杭州 LGD NBW', logoUrl: '/images/teams/hangzhou_ldg_nbw.png' },
+    { id: 12, name: '苏州 KSG', logoUrl: '/images/teams/ksg.png' },
+    { id: 13, name: '南通 Hero', logoUrl: '/images/teams/nantong_hero.png' },
+    { id: 14, name: '上海 EDG.M', logoUrl: '/images/teams/shanghai_edgm.png' },
+    { id: 15, name: '上海 RNG.M', logoUrl: '/images/teams/shanghai_rngm.png' },
+    { id: 16, name: '西安 WE', logoUrl: '/images/teams/xian_we.png' },
   ]
 }
