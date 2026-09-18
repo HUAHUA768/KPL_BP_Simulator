@@ -8,8 +8,16 @@ KPL 王者荣耀 BP（Ban/Pick）模拟器 — 前后端分离的实时对战项
 
 ## 快速开始
 
+> **首次使用必读**：项目不含 `scripts/env.sh`（其中带本地 MySQL 密码，已被 `.gitignore` 忽略）。
+> 请先从模板复制一份并填入你本机 MySQL 的真实密码，否则后端会因密码默认值 `root` 报 `Error 1045 Access denied`：
+>
+> ```bash
+> cp scripts/env.sh.example scripts/env.sh
+> # 编辑 scripts/env.sh，将 DB_PASSWORD 改为你本机 MySQL 密码
+> ```
+
 ```bash
-# 加载环境变量（Go 路径等）
+# 加载环境变量（Go 路径、MySQL 密码等）
 source scripts/env.sh
 
 # 启动后端
@@ -84,7 +92,7 @@ npm run preview      # 预览构建产物
 | `DB_HOST` | `localhost` | MySQL 地址 |
 | `DB_PORT` | `3306` | MySQL 端口 |
 | `DB_USER` | `root` | MySQL 用户名 |
-| `DB_PASSWORD` | `root` | MySQL 密码 |
+| `DB_PASSWORD` | `root` | MySQL 密码（需在 `scripts/env.sh` 中设置为本机真实密码，否则报 1045） |
 | `DB_NAME` | `kpl_bp` | 数据库名 |
 | `REDIS_ADDR` | `localhost:6379` | Redis 地址 |
 
@@ -129,7 +137,8 @@ kpl-bp-simulator/
 │   └── docker-compose.yml
 ├── docs/             # 文档
 ├── scripts/          # 工具脚本
-│   └── env.sh        # 环境变量配置
+│   ├── env.sh.example# 环境变量模板（可入库，需复制为 env.sh 并填密码）
+│   └── env.sh        # 环境变量配置（含本地密码，已 gitignore，不入库）
 └── README.md
 ```
 

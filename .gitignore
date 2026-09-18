@@ -10,10 +10,8 @@ go/
 # Build output
 dist/
 build/
-
-# Build output
-dist/
-build/
+# Go 编译产物（勿入库）
+backend/server
 
 # Go
 *.exe
@@ -48,6 +46,8 @@ Thumbs.db
 # Env
 .env
 .env.local
+# 含本地 MySQL 密码，勿入库；首次使用请复制 env.sh.example → env.sh 并填写密码
+scripts/env.sh
 
 # Docker
 *.pid
