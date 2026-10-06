@@ -16,6 +16,15 @@ interface BPStore {
   blueTeamId: number | null
   redTeamId: number | null
 
+  // 系列赛（多局）上下文
+  matchId: number | null
+  gameNumber: number
+  boFormat: number
+  blueScore: number
+  redScore: number
+  winner: 'blue' | 'red' | null
+  matchStatus: 'ongoing' | 'finished' | null
+
   // BP 进度
   currentTurn: number
   round: number
@@ -46,6 +55,13 @@ const initialState = {
   status: null as 'waiting' | 'ongoing' | 'finished' | null,
   blueTeamId: null,
   redTeamId: null,
+  matchId: null,
+  gameNumber: 1,
+  boFormat: 5,
+  blueScore: 0,
+  redScore: 0,
+  winner: null as 'blue' | 'red' | null,
+  matchStatus: null as 'ongoing' | 'finished' | null,
   currentTurn: 0,
   round: 0,
   action: '',
@@ -67,20 +83,35 @@ export const useBPStore = create<BPStore>((set) => ({
 
   setHeroList: (heroes: Hero[]) => set({ heroList: heroes }),
 
-  // 幂等入口：REST 响应与 WS 广播都会写入本入口，以 currentTurn 为版本号。
-  // 只应用不落后于本地的快照（相等也应用，REST 响应是权威数据）；
-  // 更旧的快照（乱序/重复的 WS 下行）直接丢弃——updater 返回 state 本身时
-  // zustand 会因 Object.is 相等而跳过本次更新。
+  // 幂等入口：REST 响应与 WS 广播都会写入本入口。
+  //
+  // 版本号 = (gameNumber, currentTurn) 双因子。多局流程下 currentTurn 会从 21
+  // 重置为 1，若只比 currentTurn，新一局的快照会被误判为"过期数据"而丢弃，
+  // 表现为"点了下一局界面不动"。因此必须先比局号、再比步号。
   updateBPState: (incoming: BPState) =>
     set((state) => {
       // 换房间时旧版本号无意义，直接应用新房间快照
       const sameRoom = !incoming.roomId || !state.roomId || incoming.roomId === state.roomId
-      if (sameRoom && incoming.currentTurn < state.currentTurn) return state
+      const version = (game: number, turn: number) => (game || 1) * 100 + (turn || 0)
+      if (
+        sameRoom &&
+        version(incoming.gameNumber, incoming.currentTurn) <
+          version(state.gameNumber, state.currentTurn)
+      ) {
+        return state
+      }
       return {
         roomId: incoming.roomId,
         status: incoming.status as BPStore['status'],
         blueTeamId: incoming.blueTeamId,
         redTeamId: incoming.redTeamId,
+        matchId: incoming.matchId ?? null,
+        gameNumber: incoming.gameNumber ?? 1,
+        boFormat: incoming.boFormat ?? 5,
+        blueScore: incoming.blueScore ?? 0,
+        redScore: incoming.redScore ?? 0,
+        winner: incoming.winner ?? null,
+        matchStatus: (incoming.matchStatus as BPStore['matchStatus']) ?? null,
         currentTurn: incoming.currentTurn,
         round: incoming.round,
         action: incoming.action,

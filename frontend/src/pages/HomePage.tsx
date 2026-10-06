@@ -3,7 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import TeamSelector from '../components/TeamSelector'
 import { createRoom, getHeroes } from '../services/api'
 import { useBPStore } from '../store/bpStore'
-import type { Team } from '../types'
+import type { Team, BoFormat } from '../types'
+
+// 赛制选项（与后端 boFormat 枚举一致）
+const BO_FORMATS: ReadonlyArray<{ value: BoFormat; label: string; hint: string }> = [
+  { value: 5, label: 'BO5', hint: '先胜 3 局者获胜' },
+  { value: 7, label: 'BO7', hint: '先胜 4 局者获胜' },
+  { value: 0, label: '无限制', hint: '不自动结束，手动结束比赛' },
+]
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate()
@@ -11,6 +18,7 @@ const HomePage: React.FC = () => {
   const setHeroList = useBPStore((s) => s.setHeroList)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [boFormat, setBoFormat] = useState<BoFormat>(5)
 
   const handleTeamSelect = async (blueTeam: Team, redTeam: Team) => {
     setLoading(true)
@@ -21,12 +29,12 @@ const HomePage: React.FC = () => {
       const heroes = await getHeroes()
       setHeroList(heroes)
 
-      // 2. 创建房间
-      const room = await createRoom(blueTeam.id, redTeam.id)
-      setRoomId(room.roomId)
+      // 2. 创建房间（同时创建系列赛记录；boFormat 决定赛制）
+      const state = await createRoom(blueTeam.id, redTeam.id, boFormat)
+      setRoomId(state.roomId)
 
       // 3. 跳转到 BP 房间（solo 模式无需 side 参数；dual 用户手动加 ?mode=dual&side=...）
-      navigate(`/room/${room.roomId}`)
+      navigate(`/room/${state.roomId}`)
     } catch (err: any) {
       setError(err?.response?.data?.message || '创建房间失败')
     } finally {
@@ -52,6 +60,25 @@ const HomePage: React.FC = () => {
           {error}
         </div>
       )}
+
+      {/* 赛制选择（胶囊按钮，样式与分路筛选一致） */}
+      <div className="mb-4 flex flex-wrap items-center justify-center gap-2">
+        <span className="mr-1 text-sm text-gray-400">赛制:</span>
+        {BO_FORMATS.map((f) => (
+          <button
+            key={f.value}
+            title={f.hint}
+            className={`rounded-full px-4 py-1.5 text-center text-sm font-medium transition-colors duration-200 ${
+              boFormat === f.value
+                ? 'bg-yellow-500 text-gray-900'
+                : 'bg-gray-700/60 text-gray-300 hover:bg-gray-600 hover:text-white'
+            }`}
+            onClick={() => setBoFormat(f.value)}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
 
       {/* 队伍选择器 */}
       <TeamSelector onSelect={handleTeamSelect} loading={loading} />

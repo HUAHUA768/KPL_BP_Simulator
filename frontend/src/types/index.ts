@@ -62,6 +62,15 @@ export interface BPAction {
 export interface BPState {
   roomId: string
   status: 'waiting' | 'ongoing' | 'finished'
+  // 系列赛（多局）上下文
+  matchId: number
+  gameNumber: number
+  boFormat: number // 5=BO5, 7=BO7, 0=无限制
+  blueScore: number
+  redScore: number
+  /** 本局已提交的胜方；进入下一局后重置为 null */
+  winner: 'blue' | 'red' | null
+  matchStatus: 'ongoing' | 'finished'
   blueTeamId: number
   redTeamId: number
   currentTurn: number
@@ -75,6 +84,23 @@ export interface BPState {
   heroes: HeroState[]
 }
 
+/** 系列赛制选项 */
+export type BoFormat = 5 | 7 | 0
+
+/** 一场系列赛（含每局 BP） */
+export interface MatchRecord {
+  id: number
+  teamAId: number
+  teamBId: number
+  teamAScore: number
+  teamBScore: number
+  boFormat: number
+  status: 'pending' | 'ongoing' | 'finished'
+  currentGameNum: number
+  createdAt: string
+  games: Game[]
+}
+
 // 英雄状态（BP 推送中的单个英雄）
 export interface HeroState {
   id: number
@@ -86,6 +112,9 @@ export interface Room {
   roomId: string
   status: 'waiting' | 'ongoing' | 'finished'
   side?: string
+  matchId?: number
+  gameNumber?: number
+  boFormat?: number
 }
 
 // API 响应
