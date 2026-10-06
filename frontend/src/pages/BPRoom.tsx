@@ -3,7 +3,16 @@ import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import BanPickBoard from '../components/BanPickBoard'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useBPState } from '../hooks/useBPState'
-import { getRoomStatus, getHeroes, banHero, pickHero } from '../services/api'
+import {
+  getRoomStatus,
+  getHeroes,
+  getTeams,
+  banHero,
+  pickHero,
+  submitGameResult,
+  nextGame,
+  finishMatch,
+} from '../services/api'
 import { useBPStore } from '../store/bpStore'
 import { parseMode, resolveActor } from '../utils/actor'
 import type { Hero } from '../types'
@@ -11,6 +20,12 @@ import type { Hero } from '../types'
 // 分路常量
 const LANES = ['全部', '对抗路', '中路', '发育路', '打野', '游走'] as const
 type Lane = (typeof LANES)[number]
+
+// 赛制显示：0 表示无限制，其余 BO{n}
+const boLabel = (bo: number) => (bo > 0 ? `BO${bo}` : '无限制')
+
+// 夺冠所需胜场（与后端 Room.winsNeeded 一致；0=永不自动结束）
+const winsNeeded = (bo: number) => (bo > 0 ? Math.floor(bo / 2) + 1 : 0)
 
 const BPRoom: React.FC = () => {
   const { id: roomId } = useParams<{ id: string }>()
@@ -31,6 +46,14 @@ const BPRoom: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedLane, setSelectedLane] = useState<Lane>('全部')
+  const [submitting, setSubmitting] = useState(false)
+  // 队名映射（id → name），用于结算面板显示真实队名
+  const [teamNames, setTeamNames] = useState<Record<number, string>>({})
+
+  const blueTeamName =
+    (bpState.blueTeamId != null && teamNames[bpState.blueTeamId]) || '蓝方队伍'
+  const redTeamName =
+    (bpState.redTeamId != null && teamNames[bpState.redTeamId]) || '红方队伍'
 
   // 根据选中的分路过滤英雄
   const filteredHeroes = useMemo(() => {
@@ -41,15 +64,16 @@ const BPRoom: React.FC = () => {
   // WebSocket 连接（纯下行订阅；写路径唯一走 REST）
   useWebSocket(roomId || '')
 
-  // 初始化：写入交互模式 + 加载英雄列表 + 获取房间状态
+  // 初始化：写入交互模式 + 加载英雄列表 + 获取房间状态 + 建立队名映射
   useEffect(() => {
     setMode(mode)
     if (!roomId) return
 
-    Promise.all([getHeroes(), getRoomStatus(roomId)])
-      .then(([heroes, state]) => {
+    Promise.all([getHeroes(), getRoomStatus(roomId), getTeams().catch(() => [])])
+      .then(([heroes, state, teams]) => {
         setHeroList(heroes)
         updateBPState(state)
+        setTeamNames(Object.fromEntries(teams.map((t) => [t.id, t.name])))
         setLoading(false)
       })
       .catch((err) => {
@@ -80,6 +104,33 @@ const BPRoom: React.FC = () => {
     }
   }
 
+  // 通用结算动作：提交胜方 / 下一局 / 结束比赛
+  const runAction = async (fn: (id: string) => Promise<any>) => {
+    if (!roomId || submitting) return
+    setSubmitting(true)
+    setError(null)
+    try {
+      updateBPState(await fn(roomId))
+    } catch (err: any) {
+      setError(err?.response?.data?.message || '操作失败')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // 当前局的结算阶段判定
+  const bpFinished = bpState.status === 'finished'
+  const isMatchOver = bpState.matchStatus === 'finished'
+  const need = winsNeeded(bpState.boFormat)
+  const winnerName = bpState.winner === 'blue' ? blueTeamName : redTeamName
+  // 冠军队名（比分高的一方；无限制手动结束时可能平局）
+  const championName =
+    bpState.blueScore > bpState.redScore
+      ? blueTeamName
+      : bpState.redScore > bpState.blueScore
+        ? redTeamName
+        : null
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
@@ -101,6 +152,11 @@ const BPRoom: React.FC = () => {
           </button>
           <div className="text-center text-sm text-gray-400">
             房间: <span className="text-yellow-400">{roomId}</span>
+            <span className="mx-2 text-gray-600">|</span>
+            <span className="text-gray-200">
+              第 {bpState.gameNumber} 局 · 蓝 {bpState.blueScore} : {bpState.redScore} 红 ·{' '}
+              {boLabel(bpState.boFormat)}
+            </span>
             <span className="mx-2 text-gray-600">|</span>
             {mode === 'solo' ? (
               <>
@@ -133,10 +189,99 @@ const BPRoom: React.FC = () => {
           </div>
         )}
 
-        {/* BP 完成提示 */}
-        {bpState.status === 'finished' && (
-          <div className="bg-green-900/40 border border-green-500 text-green-300 rounded px-4 py-2 mb-4 text-center text-lg font-bold">
-            🎉 BP 完成！双方阵容已确定
+        {/* 局间结算面板：录入胜负 → 下一局 / 结束比赛 */}
+        {bpFinished && (
+          <div className="mb-4 rounded-lg border border-green-500/50 bg-green-900/20 p-4 text-center">
+            {isMatchOver ? (
+              /* ③ 比赛结束 */
+              <>
+                <div className="text-lg font-bold text-yellow-300">
+                  🏆 比赛结束！
+                  {championName
+                    ? `${championName} 以 ${Math.max(bpState.blueScore, bpState.redScore)}:${Math.min(bpState.blueScore, bpState.redScore)} 赢得系列赛`
+                    : `双方 ${bpState.blueScore}:${bpState.redScore} 战平`}
+                </div>
+                <div className="mt-2 text-sm text-gray-300">
+                  🔵 {blueTeamName} {bpState.blueScore} : {bpState.redScore} {redTeamName} 🔴 ·{' '}
+                  {boLabel(bpState.boFormat)}
+                </div>
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    className="rounded-md bg-yellow-500 px-4 py-2 text-sm font-bold text-gray-900 transition-colors hover:bg-yellow-400"
+                    onClick={() => navigate('/')}
+                  >
+                    返回首页
+                  </button>
+                  <button
+                    className="rounded-md border border-gray-500 px-4 py-2 text-sm font-bold text-gray-200 transition-colors hover:border-gray-300 hover:text-white"
+                    onClick={() => navigate('/history')}
+                  >
+                    查看历史记录
+                  </button>
+                </div>
+              </>
+            ) : bpState.winner === null ? (
+              /* ① 本局 BP 完成，等待录入胜负 */
+              <>
+                <div className="text-lg font-bold text-green-300">
+                  🎉 第 {bpState.gameNumber} 局 BP 完成！双方阵容已确定
+                </div>
+                <div className="mt-2 text-sm text-gray-300">请选择本局胜方：</div>
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    disabled={submitting}
+                    className="rounded-md bg-blue-600 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => runAction((id) => submitGameResult(id, 'blue'))}
+                  >
+                    🔵 {blueTeamName} 获胜
+                  </button>
+                  <button
+                    disabled={submitting}
+                    className="rounded-md bg-red-600 px-5 py-2 text-sm font-bold text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => runAction((id) => submitGameResult(id, 'red'))}
+                  >
+                    🔴 {redTeamName} 获胜
+                  </button>
+                </div>
+              </>
+            ) : (
+              /* ② 本局已录入胜负，比赛未结束 */
+              <>
+                <div className="text-lg font-bold text-green-300">
+                  ✅ 第 {bpState.gameNumber} 局结束：{winnerName} 获胜
+                </div>
+                <div className="mt-2 text-base font-bold text-gray-200">
+                  大比分 蓝 {bpState.blueScore} : {bpState.redScore} 红
+                  <span className="ml-2 text-sm font-normal text-gray-400">
+                    （{boLabel(bpState.boFormat)}
+                    {need > 0 ? ` · 先胜 ${need} 局者夺冠` : ' · 不自动结束'}）
+                  </span>
+                </div>
+                <div className="mt-2 text-xs text-gray-400">
+                  提示：下一局将启用全局BP规则——本局双方选用过的英雄，下一局各自不可再选；
+                  对手选用过的英雄仍可选（不可 ban）
+                </div>
+                <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
+                  <button
+                    disabled={submitting}
+                    className="rounded-md bg-yellow-500 px-4 py-2 text-sm font-bold text-gray-900 transition-colors hover:bg-yellow-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    onClick={() => runAction(nextGame)}
+                  >
+                    ➡️ 开始第 {bpState.gameNumber + 1} 局 BP
+                  </button>
+                  {/* 无限制赛制才提供手动结束 */}
+                  {bpState.boFormat === 0 && (
+                    <button
+                      disabled={submitting}
+                      className="rounded-md border border-gray-500 px-4 py-2 text-sm font-bold text-gray-200 transition-colors hover:border-gray-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => runAction(finishMatch)}
+                    >
+                      结束比赛
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         )}
 

@@ -87,6 +87,7 @@ const HeroCard: React.FC<HeroCardProps> = ({
 
   const isClickable = !disabled && !blocked && !owner && !!onClick
   const badge = getBadge()
+  const isBanned = owner === 'banned_blue' || owner === 'banned_red'
 
   return (
     <button
@@ -100,16 +101,26 @@ const HeroCard: React.FC<HeroCardProps> = ({
         ${isClickable ? 'cursor-pointer hover:scale-105 hover:shadow-lg hover:shadow-yellow-500/20' : 'cursor-not-allowed'}
         ${disabled ? 'opacity-40' : ''}
         ${blocked ? 'opacity-60' : ''}
-        ${owner ? 'opacity-70' : ''}
       `}
     >
       {/* 正方形图标框：宽高一致，图片 object-cover 居中裁切 */}
       <div className="relative w-full overflow-hidden rounded bg-gray-900/60 aspect-square">
+        {/* 已用英雄整图灰化：彩色=可选，灰色=已被 ban/pick，形成强对比 */}
         <HeroIcon
           src={hero.iconPath}
           name={hero.name}
-          className="absolute inset-0 h-full w-full"
+          className={`absolute inset-0 h-full w-full ${
+            owner ? 'grayscale brightness-50' : ''
+          }`}
         />
+        {/* 被 ban 的英雄叠加醒目红✕（保留「禁」角标，双重可辨） */}
+        {isBanned && (
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="text-4xl font-black leading-none text-red-500 drop-shadow-[0_0_4px_rgba(0,0,0,0.9)]">
+              ✕
+            </span>
+          </span>
+        )}
         {badge && (
           <span
             className={`absolute right-0 top-0 rounded-bl px-1 text-[9px] font-bold leading-tight ${badge.cls}`}
@@ -119,7 +130,11 @@ const HeroCard: React.FC<HeroCardProps> = ({
         )}
       </div>
       {/* 固定高度的名称行：无论名称长短，卡片高度都一致 */}
-      <span className="mt-0.5 w-full truncate text-center text-[10px] leading-tight text-white">
+      <span
+        className={`mt-0.5 w-full truncate text-center text-[10px] leading-tight ${
+          owner ? 'text-gray-400' : 'text-white'
+        }`}
+      >
         {hero.name}
       </span>
     </button>

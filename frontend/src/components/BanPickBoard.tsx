@@ -84,7 +84,8 @@ type Owner = 'banned_blue' | 'banned_red' | 'picked_blue' | 'picked_red'
 
 // 每行英雄数量
 const HEROES_PER_ROW = 10
-// 每方 Pick 槽位数量（KPL 每方固定 5 个）
+// 每方 Ban / Pick 槽位数量（由 20 步序列表决定：双方各 ban 5、各 pick 5，固定不变）
+const BANS_PER_SIDE = 5
 const PICKS_PER_SIDE = 5
 
 const SLOT_TONE: Record<Owner, { box: string; text: string }> = {
@@ -222,16 +223,14 @@ const BanPickBoard: React.FC<BanPickBoardProps> = ({
     }
   }
 
-  // Pick 槽位补足到每方 5 个
-  const bluePickSlots = useMemo<(number | null)[]>(
-    () =>
-      Array.from({ length: PICKS_PER_SIDE }, (_, i) => bluePicked[i] ?? null),
-    [bluePicked],
-  )
-  const redPickSlots = useMemo<(number | null)[]>(
-    () => Array.from({ length: PICKS_PER_SIDE }, (_, i) => redPicked[i] ?? null),
-    [redPicked],
-  )
+  // Ban / Pick 槽位：每方固定 5 + 5，布局从头到尾零跳动
+  const fill = (ids: number[], n: number): (number | null)[] =>
+    Array.from({ length: n }, (_, i) => ids[i] ?? null)
+
+  const blueBanSlots = fill(blueBanned, BANS_PER_SIDE)
+  const redBanSlots = fill(redBanned, BANS_PER_SIDE)
+  const bluePickSlots = fill(bluePicked, PICKS_PER_SIDE)
+  const redPickSlots = fill(redPicked, PICKS_PER_SIDE)
 
   // 槽位闪烁：当前方"接下来将被填充"的空槽位。
   // 向后看 turn 序列，连续同 side 同 action 共 k 步 → 接下来 k 个空槽位同时闪。
@@ -253,27 +252,23 @@ const BanPickBoard: React.FC<BanPickBoardProps> = ({
   const blinkFor = (rowSide: SideName, slotAction: ActionName) =>
     side === rowSide && action === slotAction ? blinkingIdx : EMPTY_SET
 
-  // Ban 槽位：两侧取较长的，保证两行对齐；并至少覆盖正在闪烁的目标槽位
-  //（否则对局早期该行尚未渲染空位，闪烁无处可挂）
-  const banSlotCount = Math.max(
-    blueBanned.length,
-    redBanned.length,
-    action === 'ban' && blinkingIdx.size > 0 ? Math.max(...blinkingIdx) + 1 : 0,
-  )
-  const blueBanSlots = Array.from({ length: banSlotCount }, (_, i) => blueBanned[i] ?? null)
-  const redBanSlots = Array.from({ length: banSlotCount }, (_, i) => redBanned[i] ?? null)
-
-  const renderBanRow = (
+  // 单一槽位行：label 可在左（蓝，靠右对齐）或右（红，镜像）
+  const renderSlotRow = (
     ids: (number | null)[],
     owner: Owner,
     label: string,
     labelClass: string,
     blink: Set<number>,
     blinkTone: SideName,
+    mirrored: boolean,
   ) => (
-    <div className="flex items-center justify-center gap-2">
-      <span className={`w-8 shrink-0 text-right text-xs font-bold ${labelClass}`}>{label}</span>
-      <div className="flex flex-wrap items-center justify-center gap-1.5">
+    <div className="flex items-center gap-2">
+      {!mirrored && (
+        <span className={`w-9 shrink-0 text-right text-xs font-bold ${labelClass}`}>
+          {label}
+        </span>
+      )}
+      <div className="flex flex-1 flex-wrap items-center justify-start gap-1.5">
         {ids.map((id, idx) =>
           id === null ? (
             <EmptySlot key={`empty-${owner}-${idx}`} blinking={blink.has(idx)} tone={blinkTone} />
@@ -287,8 +282,60 @@ const BanPickBoard: React.FC<BanPickBoardProps> = ({
           ),
         )}
       </div>
+      {mirrored && (
+        <span className={`w-9 shrink-0 text-left text-xs font-bold ${labelClass}`}>{label}</span>
+      )}
     </div>
   )
+
+  // 阵营卡片：上排 5 个 ban 槽 + 下排 5 个 pick 槽
+  const renderSideCard = (cardSide: SideName) => {
+    const mirrored = cardSide === 'red'
+    const isBlue = cardSide === 'blue'
+    const banSlots = isBlue ? blueBanSlots : redBanSlots
+    const pickSlots = isBlue ? bluePickSlots : redPickSlots
+    const banOwner: Owner = isBlue ? 'banned_blue' : 'banned_red'
+    const pickOwner: Owner = isBlue ? 'picked_blue' : 'picked_red'
+    const labelClass = isBlue ? 'text-blue-400' : 'text-red-400'
+
+    return (
+      <div
+        className={`flex-1 rounded-lg border p-3 ${
+          isBlue ? 'border-blue-500/30 bg-blue-900/20' : 'border-red-500/30 bg-red-900/20'
+        }`}
+      >
+        {/* 阵营标题：红方靠右（镜像对称） */}
+        <div
+          className={`mb-2 text-sm font-bold ${labelClass} ${
+            mirrored ? 'text-right' : 'text-left'
+          }`}
+        >
+          {isBlue ? '🔵 蓝方' : '红方 🔴'}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          {renderSlotRow(
+            banSlots,
+            banOwner,
+            '禁用',
+            `${labelClass} opacity-80`,
+            blinkFor(cardSide, 'ban'),
+            cardSide,
+            mirrored,
+          )}
+          {renderSlotRow(
+            pickSlots,
+            pickOwner,
+            '选择',
+            labelClass,
+            blinkFor(cardSide, 'pick'),
+            cardSide,
+            mirrored,
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div
@@ -312,86 +359,14 @@ const BanPickBoard: React.FC<BanPickBoardProps> = ({
         </div>
       ) : (
         <div className="mb-4 rounded-lg border border-green-500/50 bg-green-900/30 px-4 py-3 text-center text-lg font-bold text-green-300">
-          🎉 BP 已完成
+          🎉 本局 BP 已完成
         </div>
       )}
 
-      {/* 已 Ban 区域 */}
-      <div className="mb-5">
-        <div className="mb-2 text-center text-sm font-bold text-gray-300">🚫 已禁用</div>
-        {banSlotCount === 0 ? (
-          <div className="py-2 text-center text-xs text-gray-500">暂无禁用</div>
-        ) : (
-          <div className="flex flex-col items-center gap-1.5">
-            {renderBanRow(
-              blueBanSlots,
-              'banned_blue',
-              '蓝',
-              'text-blue-400',
-              blinkFor('blue', 'ban'),
-              'blue',
-            )}
-            {renderBanRow(
-              redBanSlots,
-              'banned_red',
-              '红',
-              'text-red-400',
-              blinkFor('red', 'ban'),
-              'red',
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* 已 Pick 区域 */}
-      <div className="mb-5">
-        <div className="mb-2 text-center text-sm font-bold text-gray-300">✅ 已选择</div>
-        <div className="flex flex-col justify-center gap-3 md:flex-row">
-          {/* 蓝方阵容 */}
-          <div className="flex-1 rounded-lg border border-blue-500/30 bg-blue-900/20 p-3">
-            <div className="mb-2 text-center text-xs font-bold text-blue-400">🔵 蓝方阵容</div>
-            <div className="flex flex-wrap items-center justify-center gap-1.5">
-              {bluePickSlots.map((id, idx) =>
-                id === null ? (
-                  <EmptySlot
-                    key={`empty-blue-pick-${idx}`}
-                    blinking={blinkFor('blue', 'pick').has(idx)}
-                    tone="blue"
-                  />
-                ) : (
-                  <HeroSlot
-                    key={`picked_blue-${id}`}
-                    name={getHeroName(id)}
-                    icon={getHeroIcon(id)}
-                    owner="picked_blue"
-                  />
-                ),
-              )}
-            </div>
-          </div>
-          {/* 红方阵容 */}
-          <div className="flex-1 rounded-lg border border-red-500/30 bg-red-900/20 p-3">
-            <div className="mb-2 text-center text-xs font-bold text-red-400">🔴 红方阵容</div>
-            <div className="flex flex-wrap items-center justify-center gap-1.5">
-              {redPickSlots.map((id, idx) =>
-                id === null ? (
-                  <EmptySlot
-                    key={`empty-red-pick-${idx}`}
-                    blinking={blinkFor('red', 'pick').has(idx)}
-                    tone="red"
-                  />
-                ) : (
-                  <HeroSlot
-                    key={`picked_red-${id}`}
-                    name={getHeroName(id)}
-                    icon={getHeroIcon(id)}
-                    owner="picked_red"
-                  />
-                ),
-              )}
-            </div>
-          </div>
-        </div>
+      {/* 左右两列对称棋盘：左蓝（上 ban 下 pick）/ 右红镜像；窄屏纵向堆叠 */}
+      <div className="mb-5 grid gap-3 md:grid-cols-2">
+        {renderSideCard('blue')}
+        {renderSideCard('red')}
       </div>
 
       {/* 英雄选择区（固定每行 10 个） */}

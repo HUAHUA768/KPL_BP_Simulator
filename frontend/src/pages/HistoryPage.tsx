@@ -1,32 +1,36 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import GameResultTable from '../components/GameResultTable'
-import { getGames, getHeroes } from '../services/api'
-import type { Game, Hero } from '../types'
+import { MatchCard } from '../components/GameResultTable'
+import { getMatches, getHeroes, getTeams } from '../services/api'
+import type { MatchRecord, Hero, Team } from '../types'
 
 const HistoryPage: React.FC = () => {
   const navigate = useNavigate()
-  const [games, setGames] = useState<Game[]>([])
+  const [matches, setMatches] = useState<MatchRecord[]>([])
   const [heroes, setHeroes] = useState<Hero[]>([])
+  const [teams, setTeams] = useState<Team[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    Promise.all([getGames(), getHeroes()])
-      .then(([gamesData, heroesData]) => {
-        setGames(gamesData)
-        setHeroes(heroesData)
+    Promise.all([getMatches(), getHeroes(), getTeams().catch(() => [] as Team[])])
+      .then(([matchData, heroData, teamData]) => {
+        setMatches(matchData)
+        setHeroes(heroData)
+        setTeams(teamData)
         setLoading(false)
       })
       .catch((err) => {
-        setError('加载失败: ' + err.message)
+        setError('加载失败: ' + (err?.response?.data?.message || err.message))
         setLoading(false)
       })
   }, [])
 
-  const getHeroName = (id: number): string => {
-    return heroes.find((h) => h.id === id)?.name || `英雄${id}`
-  }
+  const getHeroName = (id: number): string =>
+    heroes.find((h) => h.id === id)?.name || `英雄${id}`
+
+  const getTeamName = (id: number): string =>
+    teams.find((t) => t.id === id)?.name || `队伍${id}`
 
   if (loading) {
     return (
@@ -35,6 +39,9 @@ const HistoryPage: React.FC = () => {
       </div>
     )
   }
+
+  // 只展示有内容的系列赛（避免空壳卡片）
+  const visibleMatches = matches.filter((m) => m.games.length > 0 || m.status === 'finished')
 
   return (
     <div className="min-h-screen bg-gray-900 p-4">
@@ -57,10 +64,21 @@ const HistoryPage: React.FC = () => {
           </div>
         )}
 
-        {/* 对局表格 */}
-        <div className="bg-gray-800/50 rounded-lg border border-gray-700 overflow-hidden">
-          <GameResultTable games={games} getHeroName={getHeroName} />
-        </div>
+        {/* 系列赛卡片列表 */}
+        {visibleMatches.length === 0 ? (
+          <div className="bg-gray-800/50 rounded-lg border border-gray-700 px-4 py-12 text-center text-gray-500">
+            暂无对局记录
+          </div>
+        ) : (
+          visibleMatches.map((match) => (
+            <MatchCard
+              key={match.id}
+              match={match}
+              getTeamName={getTeamName}
+              getHeroName={getHeroName}
+            />
+          ))
+        )}
       </div>
     </div>
   )
