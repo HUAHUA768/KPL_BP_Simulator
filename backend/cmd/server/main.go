@@ -8,6 +8,7 @@ import (
 	"kpl-bp-simulator/internal/handler"
 	"kpl-bp-simulator/internal/middleware"
 	"kpl-bp-simulator/internal/repository"
+	"kpl-bp-simulator/internal/service"
 	ws "kpl-bp-simulator/internal/websocket"
 
 	"github.com/gin-gonic/gin"
@@ -31,6 +32,7 @@ func main() {
 	heroRepo := repository.NewMySQLHeroRepo(db)
 	teamRepo := repository.NewMySQLTeamRepo(db)
 	gameRepo := repository.NewMySQLGameRepo(db)
+	matchRepo := repository.NewMySQLMatchRepo(db)
 
 	// 4. 赛事禁用英雄列表（雅典娜=117, 从seed data中可以看到雅典娜的ID）
 	tournamentBanned := map[int]bool{
@@ -43,12 +45,15 @@ func main() {
 	go hub.Run()
 	log.Println("WebSocket Hub 已启动")
 
-	// 6. 初始化 HTTP 处理器
-	heroHandler := handler.NewHeroHandler(heroRepo)
-	roomHandler := handler.NewRoomHandler(heroRepo, gameRepo, teamRepo, hub, tournamentBanned)
-	gameHandler := handler.NewGameHandler(gameRepo, teamRepo)
+	// 6. 初始化对局编排器（多局串联 + 全局BP记忆 + BP 落库）
+	gameService := service.NewGameService(heroRepo, gameRepo, tournamentBanned)
 
-	// 7. 创建 Gin 路由
+	// 7. 初始化 HTTP 处理器
+	heroHandler := handler.NewHeroHandler(heroRepo)
+	roomHandler := handler.NewRoomHandler(heroRepo, gameRepo, teamRepo, matchRepo, gameService, hub, tournamentBanned)
+	gameHandler := handler.NewGameHandler(gameRepo, teamRepo, matchRepo)
+
+	// 8. 创建 Gin 路由
 	r := gin.Default()
 	r.Use(middleware.CORS())
 	r.Use(middleware.Logger())
@@ -59,15 +64,22 @@ func main() {
 		// 英雄相关
 		api.GET("/heroes", heroHandler.ListHeroes)
 
-		// 房间相关
+		// 战队相关
+		api.GET("/teams", gameHandler.ListTeams)
+
+		// 房间相关（房间 = 一场系列赛）
 		api.POST("/rooms", roomHandler.CreateRoom)
 		api.POST("/rooms/:id/join", roomHandler.JoinRoom)
 		api.GET("/rooms/:id/status", roomHandler.GetRoomStatus)
 		api.POST("/rooms/:id/ban", roomHandler.Ban)
 		api.POST("/rooms/:id/pick", roomHandler.Pick)
+		api.POST("/rooms/:id/result", roomHandler.SubmitResult)
+		api.POST("/rooms/:id/next-game", roomHandler.NextGame)
+		api.POST("/rooms/:id/finish-match", roomHandler.FinishMatch)
 
 		// 对局相关
 		api.GET("/games", gameHandler.ListGames)
+		api.GET("/matches", gameHandler.ListMatches)
 	}
 
 	// WebSocket 路由
