@@ -28,3 +28,33 @@
     @apply flex flex-wrap items-center justify-center gap-2;
   }
 }
+
+/* ==========================================================================
+   槽位闪烁动画 — 当前回合方"接下来将被填充"的空槽位
+   颜色由调用处经 CSS 变量 --blink-color 按回合方（蓝/红）注入。
+   动作完成后空槽位被 HeroSlot 取代，动画自然消失，无需停止逻辑。
+   ========================================================================== */
+
+@keyframes slot-blink {
+  0%,
+  100% {
+    border-color: rgba(107, 114, 128, 0.5);
+    box-shadow: 0 0 0 0 transparent;
+  }
+  50% {
+    border-color: var(--blink-color, #facc15);
+    box-shadow: 0 0 14px 2px var(--blink-color, #facc15);
+  }
+}
+
+.slot-blinking {
+  animation: slot-blink 1.2s ease-in-out infinite;
+}
+
+/* 尊重系统减弱动画偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .slot-blinking {
+    animation: none;
+    border-color: var(--blink-color, #facc15);
+  }
+}

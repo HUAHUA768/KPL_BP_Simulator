@@ -359,4 +359,3 @@ func (e *Engine) ExecuteAction(action ActionType, heroID int) error {
 
 ---
 
-**祝你学习愉快！** 🎉

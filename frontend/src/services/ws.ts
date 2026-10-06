@@ -36,14 +36,5 @@ export function connectWS(
   return ws
 }
 
-export function sendBan(ws: WebSocket, heroId: number): void {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'ban', heroId }))
-  }
-}
-
-export function sendPick(ws: WebSocket, heroId: number): void {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'pick', heroId }))
-  }
-}
+// 注：上行 ban/pick 协议保留（见 docs/API.md「WebSocket 协议」），
+// 但单机模式前端不再发送——写路径唯一走 REST，故此处不再提供发送 API。

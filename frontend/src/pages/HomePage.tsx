@@ -25,8 +25,8 @@ const HomePage: React.FC = () => {
       const room = await createRoom(blueTeam.id, redTeam.id)
       setRoomId(room.roomId)
 
-      // 3. 跳转到 BP 房间
-      navigate(`/room/${room.roomId}?side=blue`)
+      // 3. 跳转到 BP 房间（solo 模式无需 side 参数；dual 用户手动加 ?mode=dual&side=...）
+      navigate(`/room/${room.roomId}`)
     } catch (err: any) {
       setError(err?.response?.data?.message || '创建房间失败')
     } finally {

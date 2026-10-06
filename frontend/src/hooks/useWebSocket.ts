@@ -1,17 +1,18 @@
-import { useEffect, useRef, useCallback } from 'react'
-import { connectWS, sendBan, sendPick } from '../services/ws'
+import { useEffect } from 'react'
+import { connectWS } from '../services/ws'
 import { useBPStore } from '../store/bpStore'
 import type { WSMessage, BPState } from '../types'
 
 // useWebSocket — WebSocket 连接管理 Hook
-export function useWebSocket(roomId: string, side: string) {
-  const wsRef = useRef<WebSocket | null>(null)
+// 通道定位：纯下行状态推送。写路径唯一走 REST；WS 快照由 store 幂等合并。
+// 单机模式无需上行能力，统一以 spectator 身份订阅（后端对未知 side 已兜底）。
+export function useWebSocket(roomId: string) {
   const updateBPState = useBPStore((s) => s.updateBPState)
 
   useEffect(() => {
     if (!roomId) return
 
-    const ws = connectWS(roomId, side, (msg: WSMessage) => {
+    const ws = connectWS(roomId, 'spectator', (msg: WSMessage) => {
       switch (msg.type) {
         case 'bp_update':
         case 'bp_finished':
@@ -25,25 +26,8 @@ export function useWebSocket(roomId: string, side: string) {
       }
     })
 
-    wsRef.current = ws
-
     return () => {
       ws.close()
-      wsRef.current = null
     }
-  }, [roomId, side, updateBPState])
-
-  const ban = useCallback((heroId: number) => {
-    if (wsRef.current) {
-      sendBan(wsRef.current, heroId)
-    }
-  }, [])
-
-  const pick = useCallback((heroId: number) => {
-    if (wsRef.current) {
-      sendPick(wsRef.current, heroId)
-    }
-  }, [])
-
-  return { ban, pick }
+  }, [roomId, updateBPState])
 }

@@ -5,6 +5,7 @@ import { useWebSocket } from '../hooks/useWebSocket'
 import { useBPState } from '../hooks/useBPState'
 import { getRoomStatus, getHeroes, banHero, pickHero } from '../services/api'
 import { useBPStore } from '../store/bpStore'
+import { parseMode, resolveActor } from '../utils/actor'
 import type { Hero } from '../types'
 
 // 分路常量
@@ -20,6 +21,12 @@ const BPRoom: React.FC = () => {
   const bpState = useBPState()
   const setHeroList = useBPStore((s) => s.setHeroList)
   const updateBPState = useBPStore((s) => s.updateBPState)
+  const setMode = useBPStore((s) => s.setMode)
+
+  // 交互模式：solo（默认，一人分饰两角）/ dual（双人预留）
+  const mode = parseMode(searchParams.toString())
+  // 有效操作方：solo = 引擎当前回合方；dual = URL 声明方
+  const actorSide = resolveActor(bpState.side, mode, mySide)
 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -31,11 +38,12 @@ const BPRoom: React.FC = () => {
     return bpState.heroList.filter((hero) => hero.lanes.includes(selectedLane))
   }, [bpState.heroList, selectedLane])
 
-  // WebSocket 连接
-  const { ban: wsBan, pick: wsPick } = useWebSocket(roomId || '', mySide)
+  // WebSocket 连接（纯下行订阅；写路径唯一走 REST）
+  useWebSocket(roomId || '')
 
-  // 初始化：加载英雄列表 + 获取房间状态
+  // 初始化：写入交互模式 + 加载英雄列表 + 获取房间状态
   useEffect(() => {
+    setMode(mode)
     if (!roomId) return
 
     Promise.all([getHeroes(), getRoomStatus(roomId)])
@@ -48,29 +56,25 @@ const BPRoom: React.FC = () => {
         setError('加载失败: ' + (err?.response?.data?.message || err.message))
         setLoading(false)
       })
-  }, [roomId, setHeroList, updateBPState])
+  }, [roomId, mode, setMode, setHeroList, updateBPState])
 
-  // 处理 ban 操作
+  // 处理 ban 操作（REST 是唯一写路径，响应即权威状态）
   const handleBanHero = async (hero: Hero) => {
     if (!roomId) return
     try {
-      // 通过 HTTP API 执行（也通过 WebSocket 广播）
       const state = await banHero(roomId, hero.id)
       updateBPState(state)
-      // 同时通过 WS 发送
-      wsBan(hero.id)
     } catch (err: any) {
       setError(err?.response?.data?.message || '操作失败')
     }
   }
 
-  // 处理 pick 操作
+  // 处理 pick 操作（REST 是唯一写路径，响应即权威状态）
   const handlePickHero = async (hero: Hero) => {
     if (!roomId) return
     try {
       const state = await pickHero(roomId, hero.id)
       updateBPState(state)
-      wsPick(hero.id)
     } catch (err: any) {
       setError(err?.response?.data?.message || '操作失败')
     }
@@ -98,10 +102,21 @@ const BPRoom: React.FC = () => {
           <div className="text-center text-sm text-gray-400">
             房间: <span className="text-yellow-400">{roomId}</span>
             <span className="mx-2 text-gray-600">|</span>
-            你:
-            <span className={mySide === 'blue' ? 'text-blue-400' : 'text-red-400'}>
-              {mySide === 'blue' ? ' 🔵 蓝方' : ' 🔴 红方'}
-            </span>
+            {mode === 'solo' ? (
+              <>
+                当前扮演:
+                <span className={actorSide === 'blue' ? 'text-blue-400' : 'text-red-400'}>
+                  {actorSide === 'blue' ? ' 🔵 蓝方' : ' 🔴 红方'}
+                </span>
+              </>
+            ) : (
+              <>
+                你:
+                <span className={mySide === 'blue' ? 'text-blue-400' : 'text-red-400'}>
+                  {mySide === 'blue' ? ' 🔵 蓝方' : ' 🔴 红方'}
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -156,7 +171,7 @@ const BPRoom: React.FC = () => {
           side={bpState.side}
           onBanHero={handleBanHero}
           onPickHero={handlePickHero}
-          mySide={mySide}
+          actorSide={actorSide}
         />
       </div>
     </div>
