@@ -141,8 +141,8 @@
     "round": 1,
     "action": "pick",
     "side": "blue",
-    "blueBanned": [],
-    "redBanned": [],
+    "blueBanned": [12, 34],
+    "redBanned": [45, 67],
     "bluePicked": [],
     "redPicked": [],
     "heroes": [
@@ -231,10 +231,10 @@
   "data": {
     "currentTurn": 6,
     "action": "pick",
-    "side": "blue",
-    "blueBanned": [12],
-    "redBanned": [],
-    "bluePicked": [],
+    "side": "red",
+    "blueBanned": [12, 34],
+    "redBanned": [45, 67],
+    "bluePicked": [5],
     "redPicked": [],
     "heroes": [ { "id": 1, "status": "available" } ]
   }
