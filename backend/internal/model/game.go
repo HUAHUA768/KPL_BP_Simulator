@@ -27,6 +27,7 @@ type MatchRecord struct {
 	TeamAScore       int       `json:"teamAScore"       gorm:"column:team_a_score"`
 	TeamBScore       int       `json:"teamBScore"       gorm:"column:team_b_score"`
 	CurrentGameNum   int       `json:"currentGameNum"   gorm:"column:current_game_num"`
+	BoFormat         int       `json:"boFormat"         gorm:"column:bo_format"` // 5=BO5, 7=BO7, 0=无限制
 	SidePickerTeamID *int      `json:"sidePickerTeamId" gorm:"column:side_picker_team_id"`
 	Status           string    `json:"status"           gorm:"column:status"`
 	CreatedAt        time.Time `json:"createdAt"        gorm:"column:created_at"`

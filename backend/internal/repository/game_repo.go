@@ -16,6 +16,9 @@ type GameRepo interface {
 	GetGameByMatchAndNum(matchID, gameNumber int) (*model.Game, error)
 	// ListGamesByMatch 查询一场比赛的全部对局
 	ListGamesByMatch(matchID int) ([]*model.Game, error)
+	// ListAllGames 查询全部对局（按 match_id DESC, game_number ASC），
+	// 供 GET /api/games 无参调用使用
+	ListAllGames() ([]*model.Game, error)
 	// ListBPActions 查询某局全部 BP 操作（按 step_order 排序）
 	ListBPActions(gameID int) ([]*model.BanPickAction, error)
 }

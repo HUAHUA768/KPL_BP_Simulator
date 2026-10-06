@@ -85,6 +85,14 @@ func (m *mockGameRepo) ListBPActions(gameID int) ([]*model.BanPickAction, error)
 	return m.actions[gameID], nil
 }
 
+func (m *mockGameRepo) ListAllGames() ([]*model.Game, error) {
+	var out []*model.Game
+	for _, g := range m.games {
+		out = append(out, g)
+	}
+	return out, nil
+}
+
 // ============================================================================
 // 工具函数：构造 GameService + 跑完一局 BP
 // ============================================================================

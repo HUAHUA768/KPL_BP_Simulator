@@ -113,3 +113,52 @@ func (r *MySQLGameRepo) ListBPActions(gameID int) ([]*model.BanPickAction, error
 	err := r.db.Where("game_id = ?", gameID).Order("step_order ASC").Find(&actions).Error
 	return actions, err
 }
+
+// ListAllGames 查询全部对局（按 match_id DESC, game_number ASC）
+func (r *MySQLGameRepo) ListAllGames() ([]*model.Game, error) {
+	var games []*model.Game
+	err := r.db.Order("match_id DESC, game_number ASC").Find(&games).Error
+	return games, err
+}
+
+// ============================================================================
+// MySQLMatchRepo — 系列赛数据访问
+// ============================================================================
+
+type MySQLMatchRepo struct {
+	db *gorm.DB
+}
+
+func NewMySQLMatchRepo(db *gorm.DB) *MySQLMatchRepo {
+	return &MySQLMatchRepo{db: db}
+}
+
+func (r *MySQLMatchRepo) CreateMatch(m *model.MatchRecord) (int, error) {
+	if err := r.db.Create(m).Error; err != nil {
+		return 0, err
+	}
+	return m.ID, nil
+}
+
+func (r *MySQLMatchRepo) GetByID(id int) (*model.MatchRecord, error) {
+	var m model.MatchRecord
+	if err := r.db.First(&m, id).Error; err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+func (r *MySQLMatchRepo) UpdateProgress(id, aScore, bScore, currentGameNum int, status string) error {
+	return r.db.Model(&model.MatchRecord{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"team_a_score":     aScore,
+		"team_b_score":     bScore,
+		"current_game_num": currentGameNum,
+		"status":           status,
+	}).Error
+}
+
+func (r *MySQLMatchRepo) ListRecent(limit int) ([]*model.MatchRecord, error) {
+	var matches []*model.MatchRecord
+	err := r.db.Order("id DESC").Limit(limit).Find(&matches).Error
+	return matches, err
+}
