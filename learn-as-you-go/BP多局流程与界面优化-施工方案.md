@@ -1,7 +1,7 @@
 # BP 多局流程与界面优化 — 施工方案
 
-> 📅 制定日期：2026-10-06
-> 🎯 状态：**待施工**（本文档仅为方案，尚未动代码）
+> 📅 制定日期：2026-10-06 ｜ ✅ 完工日期：2026-10-06
+> 🎯 状态：**已完工**（4 个 commit 已提交，验收结果见 §八）
 > 📌 上游文档：[BP单机交互方案决策.md](BP单机交互方案决策.md)
 
 ---
@@ -370,46 +370,82 @@ if (sameRoom && v(incoming.gameNumber, incoming.currentTurn) < v(state.gameNumbe
 
 ---
 
-## 八、验收清单（施工后逐项打勾）
+## 八、验收结果（2026-10-06 完工回填）
 
-### 构建
+> 验证方式说明：本项目未配置浏览器自动化（无 Playwright/Chrome），因此
+> **问题1/问题2 采用"真实组件 SSR 渲染 + 结构断言"**（esbuild 即时编译 TSX，
+> 渲染 `BanPickBoard` / `MatchCard` 真实组件后断言 DOM 结构与关键类名），
+> **问题3 采用"接口级全流程驱动"**（Python 脚本按权威 `currentTurn/side`
+> 逐步驱动 HTTP API，并回查 MySQL 落库）。所有断言均已通过。
 
-- [ ] `cd backend && go build ./cmd/server/` 无错误，`go test ./internal/service/` 通过
-- [ ] `cd frontend && npm run build` 无 TS 错误
-- [ ] 执行 004 迁移成功；重启后端
+### 构建 ✅
 
-### 问题1 视觉
+- [x] `go build ./...` 无错误；`go test ./internal/service/` 通过（含新增 `ListAllGames` 的 mock 同步）
+- [x] `npm run build` 无 TS 错误（`tsc --noEmit` 亦通过）
+- [x] 迁移 004 执行成功，`match_record.bo_format` 已存在（默认 5）
 
-- [ ] ban 一个英雄 → 英雄池内该卡片灰化 + 红✕ + 「禁」角标，老远可辨
-- [ ] pick 一个英雄 → 灰化 + 阵营色边框角标；可用英雄保持全彩
+### 问题1 视觉 ✅（SSR 渲染验收 6/6）
 
-### 问题2 布局
+- [x] ban 英雄 → 卡片图标 `grayscale brightness-50` 灰化 + 红色 `✕` + 「禁」角标三重可辨
+- [x] pick 英雄 → 灰化 + 阵营色边框 + 「蓝」/「红」角标；可用英雄保持全彩
+- [x] 移除旧 `owner opacity-70` 叠加（避免角标发糊）
 
-- [ ] 棋盘为左右两列：左蓝（上ban下pick）、右红镜像；槽位各 5+5 固定不跳动
-- [ ] 当前回合方的目标槽位仍在正确位置闪烁（含第 18→19 步蓝方双 pick 连闪）
-- [ ] 窄屏（移动端宽度）下两列纵向堆叠不破版
+### 问题2 布局 ✅（SSR 渲染验收 10/10）
 
-### 问题3 多局流程（核心）
+- [x] 左右两列：左蓝（上 ban 下 pick）、右红镜像（标签靠右/靠左已分别断言）
+- [x] 槽位固定 5 ban + 5 pick：渲染空槽位数恒为 `5+5 两侧×2 行 − 已填数`，无动态计算 → **零跳动**
+- [x] 原「🚫 已禁用 / ✅ 已选择」两个独立区块已移除
+- [x] 闪烁逻辑保留：第 18 步蓝方双 pick 连闪 2 槽，颜色随回合方主题色（`--blink-color`）
+- [x] `md:grid-cols-2` 保证窄屏自动纵向堆叠
 
-- [ ] 创建房间（选 BO5）→ 第 1 局正常走完 20 步 → 显示"第 1 局 BP 完成"结算面板
-- [ ] 点击「🔴 红方胜」→ 显示比分 0:1，出现「开始第 2 局 BP」按钮
-- [ ] 点「开始第 2 局」→ 棋盘重置为空，**第 1 局双方 pick 过的 10 个英雄**：
-      原蓝方不可再选（点击报"受全局BP规则限制"）、原红方同理；对方仍可选
-- [ ] `SELECT COUNT(*) FROM ban_pick_action;` = 20（第 1 局已落库）
-- [ ] 打到某方 3 胜 → 自动显示"🏆 比赛结束"，`match_record.status='finished'`
-- [ ] 比赛结束后「下一局」按钮不可用（接口返回 400 文案正确）
-- [ ] 无限制赛制：不自动结束，「结束比赛」按钮可用且生效
+### 问题3 多局流程 ✅（接口级验收 26/26 + 面板契约 24/24）
 
-### 历史记录
+- [x] BO5 建房 → 第 1 局 20 步走完 → `status=finished`、`currentTurn=21`
+- [x] 提交「红方胜」→ 大比分 0:1，`matchStatus=ongoing`，`game.winner='red'` 已落库
+- [x] 重复提交胜方被拒（400「本局胜方已提交」）
+- [x] 「开始第 2 局」→ `gameNumber=2`、`currentTurn=1`、四列表全空、`winner` 重置为 null
+- [x] `ban_pick_action` 第 1 局正好 20 行（`bp_completed=1`）
+- [x] **全局BP记忆权限矩阵全部生效**（口径为需求方确认版）：
+      - 上局红方选过 x → 本局 **蓝方可选不可 ban**、**红方可 ban 不可选**
+      - 上局蓝方选过 y → 本局 **红方可选不可 ban**、**蓝方可 ban 不可选**
+      - 测试实证：蓝 ban 上局红方选过的英雄 → 400「受全局BP规则限制」；蓝 ban 上局蓝方
+        选过的 → 200；蓝 pick 上局红方选过的 → 200（对手用过的我方仍可选）
+- [x] BO5 打满 5 局：2:2 后红方第 3 胜 → `matchStatus=finished` 自动结束，落库 3:2 / 5 局
+- [x] 比赛结束后 `next-game` 返回 400「比赛已结束，不能进入下一局」
+- [x] BO7 需 4 胜：连下 4 局后自动结束（已单独验证）
+- [x] 无限制赛制（boFormat=0）：打满 4 局不自动结束；`finish-match` 手动结束生效，
+      重复结束返回 400
+- [x] 赛制枚举校验：`boFormat=3` 返回 400
 
-- [ ] 返回首页 → 查看历史对局：显示刚才的系列赛卡片（真实队名、大比分、每局阵容/禁用/胜方）
-- [ ] 刷新页面后记录仍在（已持久化）
-- [ ] `GET /api/games`（无参）返回非空
+### 历史记录 ✅
+
+- [x] `GET /api/matches` 返回系列赛卡片数据（真实队名、大比分、赛制、状态 + 每局明细）
+- [x] `GET /api/games`（无参）返回非空（修复前恒为空数组）——实测返回 13 局 / 3 场比赛
+- [x] `GET /api/teams` 返回 DB 全部 18 支队伍（含 SYG/WST）；id=1 为「重庆狼队」
+      （修正前端硬编码的「AG 超玩会」错位问题）
+- [x] 记录持久化在 MySQL，刷新/重启后端后仍在
 
 ### 回归
 
-- [ ] 英雄池分路筛选、回合横幅主题色切换、错误提示关闭等既有功能正常
-- [ ] 两个浏览器窗口同时观战同一房间，WS 推送同步（含结算/下一局事件）
+- [x] 英雄池分路筛选、回合横幅主题色、错误提示关闭等既有功能未改动逻辑，构建通过
+- [ ] ⚠️ **两个浏览器窗口 WS 同步观察**：未执行（本项目无浏览器自动化环境）。
+      WS 广播路径已确认对所有房间事件（ban/pick/result/next-game/finish-match）
+      统一走 `broadcastUpdate`，且前端 `updateBPState` 已用
+      `(gameNumber, currentTurn)` 双因子版本号防乱序；但"肉眼双窗口同步"仍需人工确认。
+
+### 施工中偏离/补强原方案之处
+
+1. **`bpStore` 版本号**（方案 §5.4 的隐蔽关键点）已按双因子 `(gameNumber*100+currentTurn)` 修复。
+2. **`next-game` 增加落库完成前置检查**：若上一局 Actions 尚未落库成功，接口返回 500
+   并提示重试，避免"全局BP记忆静默失效"。方案未要求，属防御性补强。
+3. **`finish-match` 未按赛制硬限制**：需求方确认「任何赛制均可提前结束比赛」，
+   因此接口不校验 `boFormat`，仅前端在无限制赛制显示该按钮（方案原文称"无限制赛制专用"）。
+4. **`result` 的幂等**：`FinishGame` 落库时 `winner` 传 nil，胜方由 `/result` 接口单独写入，
+   保证 20 步 Actions 与 winner 解耦、各自幂等。
+5. **历史页过滤空壳卡片**：仅展示 `games.length > 0 || status === 'finished'` 的系列赛。
+6. **文档位置**：方案原本放在 `Pending_Construction/`，完工后已移入 `learn-as-you-go/`
+   并在该目录 README 登记（原方案 §十 称已登记于根 README，实际登记表在
+   `learn-as-you-go/README.md`，本次一并修正）。
 
 ---
 
@@ -429,9 +465,23 @@ if (sameRoom && v(incoming.gameNumber, incoming.currentTurn) < v(state.gameNumbe
 
 ---
 
-## 十、交付物
+## 十、交付物（已完成）
 
-- 代码：按 §七 四个 commit 提交
-- 数据库：迁移 004
-- 文档：本方案已在 [README.md](README.md) 目录表登记；施工完成后把状态
-  改为"已完工"，并回填验收结果
+- **代码**：按 §七 四个 commit 提交，均已入库：
+  | # | commit | 内容 |
+  |---|--------|------|
+  | 1 | `feat(db): 新增 match_record.bo_format 与系列赛仓储层` | 迁移 004、`match_repo.go`(新)、`game_repo.go`、`mysql_repo.go`、model |
+  | 2 | `feat(backend): 房间生命周期接线，实现多局系列赛与全局BP记忆` | `room_handler.go`(重写)、`game_handler.go`、`main.go` |
+  | 3 | `feat(frontend): 状态层与 API 支持多局系列赛` | `types`、`bpStore`、`api.ts`、`HomePage` |
+  | 4 | `feat(frontend): 左右两列棋盘、英雄灰化与局间结算面板` | `BanPickBoard`、`HeroCard`、`BPRoom`、`HistoryPage`、`GameResultTable` |
+- **数据库**：迁移 004（已在本地库执行）
+- **文档**：本方案已完工，状态改为"已完工"并回填 §八 验收结果；
+  文档位置由 `Pending_Construction/` 移入 `learn-as-you-go/` 并登记于该目录 README
+
+### 后续可优化项（本次未做，记录下来）
+
+1. **受限英雄提前灰显**：第 2 局起，某方上局选过的英雄对"本方"实际不可选，
+   目前靠点击后后端报错提示（§九.3）。若要提前灰显，需扩展 `buildRoomState`
+   输出"每个英雄对当前回合方的 ban/pick 权限"再传给前端。
+2. **房间断线续赛**：房间状态纯内存，后端重启丢失进行中的房间（§九.1）。
+3. **WS 双窗口同步**：逻辑上已具备（统一广播 + 双因子版本号），但缺浏览器自动化验证。

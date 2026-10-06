@@ -91,26 +91,24 @@
 
 ### `POST /api/rooms` 创建房间
 
+> 一个房间 = 一场系列赛（BO5 / BO7 / 无限制）。创建时会同时写入 `match_record`
+> 与第 1 局的 `game` 行，因此**无需**再单独调用开始对局接口。
+
 - 请求体：
 
 ```json
 {
   "blueTeamId": 1,
-  "redTeamId": 2
+  "redTeamId": 2,
+  "boFormat": 5
 }
 ```
 
-- 响应 201：
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `boFormat` | 否 | `5`=BO5(先 3 胜)、`7`=BO7(先 4 胜)、`0`=无限制(不自动结束)；缺省 `5`。其他值一律 400 |
 
-```json
-{
-  "code": 0,
-  "data": {
-    "roomId": "7f4a2c9e",
-    "status": "waiting"
-  }
-}
-```
+- 响应 201：完整房间状态快照（结构同下方 `GET /api/rooms/:id/status`）
 
 ### `POST /api/rooms/:id/join` 加入房间
 
@@ -135,8 +133,15 @@
   "data": {
     "roomId": "7f4a2c9e",
     "status": "ongoing",
+    "matchId": 1,
+    "gameNumber": 2,
+    "boFormat": 5,
     "blueTeamId": 1,
     "redTeamId": 2,
+    "blueScore": 1,
+    "redScore": 0,
+    "winner": null,
+    "matchStatus": "ongoing",
     "currentTurn": 5,
     "round": 1,
     "action": "pick",
@@ -152,11 +157,23 @@
 }
 ```
 
+**系列赛字段语义**：
+
+| 字段 | 说明 |
+|------|------|
+| `status` | **本局** BP 状态：`ongoing` / `finished` |
+| `gameNumber` | 当前第几局（1 起） |
+| `boFormat` | 赛制：5 / 7 / 0 |
+| `blueScore` / `redScore` | 系列赛大比分（蓝方 / 红方已胜局数） |
+| `winner` | **本局**已提交的胜方 `"blue"` / `"red"`；未提交或进入下一局后为 `null` |
+| `matchStatus` | **整个系列赛**状态：`ongoing` / `finished` |
+
 ### `POST /api/rooms/:id/ban` 执行 ban 操作
 
 - 请求体：`{ "heroId": 12 }`
 - 响应 200：完整房间状态快照（结构同 `GET /api/rooms/:id/status` 的 `data`，含执行后的 `currentTurn`）
 - 错误：`40001`~`40007` 之一
+- 第 20 步完成后本局 BP 结束，20 步操作会自动落库到 `ban_pick_action`
 
 ### `POST /api/rooms/:id/pick` 执行 pick 操作
 
@@ -166,13 +183,64 @@
 
 > **回合归属说明**：ban/pick 接口都**不接收"操作方"参数**。当前该谁操作完全由服务端 BP 引擎的 20 步状态机决定（快照中的 `side` 即下一步的归属方），客户端无需也不应声明身份。前端单机模式据此实现"一人分饰两角"，详见 [BP单机交互方案决策](../learn-as-you-go/BP单机交互方案决策.md)。
 
+### `POST /api/rooms/:id/result` 提交本局胜方
+
+> BP 完成（`status=finished`）后必须提交胜方，才允许进入下一局。
+
+- 请求体：`{ "winner": "blue" }`（或 `"red"`）
+- 响应 200：完整房间状态快照，其中大比分已更新、`winner` 已写入
+- 达到赛制所需胜场（BO5=3、BO7=4）时自动置 `matchStatus=finished`
+- 错误：
+  - `400` 本局 BP 尚未完成，不能提交胜负
+  - `400` 本局胜方已提交
+  - `400` 比赛已结束
+
+### `POST /api/rooms/:id/next-game` 进入下一局
+
+> 触发**全局BP记忆规则**：后端读取上一局 `ban_pick_action`，按规则派生新一局的
+> 英雄权限后创建新引擎。
+
+- 请求体：无（`{}`）
+- 响应 200：完整房间状态快照，`gameNumber` +1、`currentTurn=1`、四个 ban/pick 列表清空、`winner=null`
+- 错误：
+  - `400` 本局 BP 尚未完成 / 请先提交本局胜方 / 比赛已结束
+  - `500` 上一局 BP 记录尚未保存完成（防御性检查，稍后重试即可）
+
+### `POST /api/rooms/:id/finish-match` 手动结束比赛
+
+> 前端仅在无限制赛制（`boFormat=0`）显示入口；接口本身不校验赛制，
+> 任何赛制都可提前结束。
+
+- 请求体：无（`{}`）
+- 响应 200：`matchStatus=finished` 的快照
+- 错误：`400` 比赛已结束
+
+---
+
+## 战队相关
+
+### `GET /api/teams` 获取战队列表
+
+- 响应 200：
+
+```json
+{
+  "code": 0,
+  "data": [
+    { "id": 1, "name": "重庆狼队", "logoUrl": "images/teams/chongqin_wolves.png" }
+  ]
+}
+```
+
+> 数据来自 `team` 表（共 18 支，含 SYG / WST）。该接口取代了前端此前的硬编码战队数组。
+
 ---
 
 ## 对局相关
 
 ### `GET /api/games` 查询历史对局
 
-- 查询参数：`matchId`（可选）
+- 查询参数：`matchId`（可选）。**不传时返回全部对局**（按 `match_id DESC, game_number ASC`）
 - 响应 200：
 
 ```json
@@ -199,6 +267,43 @@
   ]
 }
 ```
+
+### `GET /api/matches` 查询系列赛历史
+
+- 查询参数：无（返回最近 50 场）
+- 响应 200：
+
+```json
+{
+  "code": 0,
+  "data": [
+    {
+      "id": 1,
+      "teamAId": 1,
+      "teamBId": 2,
+      "teamAScore": 3,
+      "teamBScore": 1,
+      "boFormat": 5,
+      "status": "finished",
+      "currentGameNum": 4,
+      "createdAt": "2026-10-06T19:17:36+08:00",
+      "games": [
+        { "id": 1, "gameNumber": 1, "winner": "blue", "bpCompleted": true, "banPickActions": [] }
+      ]
+    }
+  ]
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `teamAId` / `teamBId` | 蓝方 / 红方队伍（本模拟器全程不换边） |
+| `teamAScore` / `teamBScore` | 大比分（蓝 / 红已胜局数） |
+| `boFormat` | 赛制：5 / 7 / 0 |
+| `status` | 系列赛状态：`ongoing` / `finished` |
+| `games[]` | 该系列赛每局明细，元素结构同 `GET /api/games` |
+
+> 历史页即以此接口一次取回"系列赛 + 每局 BP"，避免前端二次拼接。
 
 ---
 
