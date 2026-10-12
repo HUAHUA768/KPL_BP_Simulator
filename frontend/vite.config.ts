@@ -16,6 +16,12 @@ export default defineConfig({
         target: 'ws://localhost:8080',
         changeOrigin: true,
       },
+      // 英雄 / 战队图标静态资源，对应后端 r.Static("/images", "./static/images")
+      // 不加这段，/images/teams/*.png 在开发环境会 404，队标无法显示
+      '/images': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
   },
 })

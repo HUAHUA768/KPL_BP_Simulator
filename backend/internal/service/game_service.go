@@ -74,7 +74,10 @@ func (s *GameService) StartGame(matchID, gameNumber, blueTeamID, redTeamID int) 
 			if err != nil {
 				return nil, fmt.Errorf("读取上一局BP记录失败: %w", err)
 			}
-			s.applyGlobalBPMemory(perms, actions)
+			// 全局BP记忆"跟队伍走，不跟颜色走"（问题4）：
+			// 上一局记录里的 side 是"颜色"，必须先用上一局的红蓝归属把它翻译成"队伍"，
+			// 再按本局的红蓝归属翻译回"颜色"。否则换边后限制会加在错误的队伍身上。
+			s.applyGlobalBPMemory(perms, actions, prevGame, blueTeamID, redTeamID)
 		}
 	}
 
@@ -83,26 +86,57 @@ func (s *GameService) StartGame(matchID, gameNumber, blueTeamID, redTeamID int) 
 
 // applyGlobalBPMemory 应用全局BP记忆规则：
 //
-//	上局红方选了 x → 本局 x：蓝方可选但不可ban；红方可ban但不可选
-//	上局蓝方选了 y → 本局 y：红方可选但不可ban；蓝方可ban但不可选
+//	上局某队选了 x → 本局 x：该队可 ban 但不可选；对手可选但不可 ban
+//
+// ⚠️ 语义关键（问题4 选边后尤其重要）：限制**跟着队伍走，不跟着颜色走**。
+// 上一局记录里的 Side 是"颜色"，本局的红蓝归属可能已经交换，
+// 因此必须：
+//  1. 用【上一局】的 blue/red 归属，把 a.Side（颜色）翻译成"是哪个队选了这个英雄"；
+//  2. 再用【本局】的 blue/red 归属，把"该队"翻译回本局它是蓝还是红；
+//  3. 据此设置本局的权限位。
+//
+// 若只用颜色直接映射（旧实现），换边后会出现两个错误：
+// 自己上局选过的英雄本局竟可再选；而对手却被禁掉了。
 //
 // 其余英雄保持原有权限（赛事禁用、普通英雄不受影响）
-func (s *GameService) applyGlobalBPMemory(perms map[int]*HeroPerm, actions []*model.BanPickAction) {
+func (s *GameService) applyGlobalBPMemory(
+	perms map[int]*HeroPerm,
+	actions []*model.BanPickAction,
+	prevGame *model.Game,
+	curBlueTeamID, curRedTeamID int,
+) {
 	for _, a := range actions {
 		if a.ActionType != "pick" {
 			continue // 只有 pick 过的英雄产生"记忆"
 		}
+
+		// 1) 颜色 → 上一局实际队伍
+		var pickedByTeamID int
 		switch a.Side {
 		case "blue":
-			// 蓝方选过 y：本局 红方可选不可ban、蓝方可ban不可选
+			pickedByTeamID = prevGame.BlueTeamID
+		case "red":
+			pickedByTeamID = prevGame.RedTeamID
+		default:
+			continue
+		}
+
+		// 2) 该队在本局是蓝还是红（选边后可能已交换）
+		pickedByIsBlueNow := pickedByTeamID == curBlueTeamID
+		if pickedByTeamID != curBlueTeamID && pickedByTeamID != curRedTeamID {
+			// 理论上不可达（两队固定），保守起见跳过，避免给出错误权限
+			continue
+		}
+
+		// 3) 设置权限：选过的一方"可ban不可选"，对手"可选不可ban"
+		if pickedByIsBlueNow {
 			perms[a.HeroID] = &HeroPerm{
 				BlueCanBan:  true,
-				BlueCanPick: false,
+				BlueCanPick: false, // 自己选过 → 不可再选
 				RedCanBan:   false,
-				RedCanPick:  true,
+				RedCanPick:  true, // 对手可选 → 不可 ban
 			}
-		case "red":
-			// 红方选过 x：本局 蓝方可选不可ban、红方可ban不可选
+		} else {
 			perms[a.HeroID] = &HeroPerm{
 				BlueCanBan:  false,
 				BlueCanPick: true,
@@ -147,15 +181,18 @@ func (s *GameService) FinishGame(gameID int, engine *Engine, winner *string) err
 	return s.gameRepo.UpdateGameBPCompleted(gameID, winner)
 }
 
-// GlobalBPMemoryPerm 导出规则说明（供文档/调试）：返回"上局某方选过 x"后本局 x 的权限
-func GlobalBPMemoryPerm(pickedBy TeamSide) *HeroPerm {
-	switch pickedBy {
-	case Blue:
-		// 上局蓝方选了 y → 本局：红方可选不可ban、蓝方可ban不可选
+// GlobalBPMemoryPerm 导出规则说明（供文档/调试）。
+//
+// 返回"某队在上局 pick 了 x"时，本局 x 针对**该队当前所处颜色**的权限。
+//
+// ⚠️ 注意入参语义（问题4）：pickedByTeamIsBlueNow 表示"上局选过 x 的那支队，
+// 在本局是蓝方吗"。限制跟队伍走，不跟颜色走 —— 换边后同一支队只是换了颜色，
+// 它依然不可再选自己上局选过的英雄。
+func GlobalBPMemoryPerm(pickedByTeamIsBlueNow bool) *HeroPerm {
+	if pickedByTeamIsBlueNow {
+		// 选过 x 的队本局是蓝方：蓝方可ban不可选；红方（对手）可选不可ban
 		return &HeroPerm{BlueCanBan: true, BlueCanPick: false, RedCanBan: false, RedCanPick: true}
-	case Red:
-		// 上局红方选了 x → 本局：蓝方可选不可ban、红方可ban不可选
-		return &HeroPerm{BlueCanBan: false, BlueCanPick: true, RedCanBan: true, RedCanPick: false}
 	}
-	return FullPerm()
+	// 选过 x 的队本局是红方：红方可ban不可选；蓝方（对手）可选不可ban
+	return &HeroPerm{BlueCanBan: false, BlueCanPick: true, RedCanBan: true, RedCanPick: false}
 }

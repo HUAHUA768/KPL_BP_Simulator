@@ -157,6 +157,11 @@ func (r *MySQLMatchRepo) UpdateProgress(id, aScore, bScore, currentGameNum int, 
 	}).Error
 }
 
+func (r *MySQLMatchRepo) UpdateSidePicker(id, teamID int) error {
+	return r.db.Model(&model.MatchRecord{}).Where("id = ?", id).
+		Update("side_picker_team_id", teamID).Error
+}
+
 func (r *MySQLMatchRepo) ListRecent(limit int) ([]*model.MatchRecord, error) {
 	var matches []*model.MatchRecord
 	err := r.db.Order("id DESC").Limit(limit).Find(&matches).Error

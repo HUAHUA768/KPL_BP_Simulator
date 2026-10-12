@@ -38,6 +38,13 @@ export interface Team {
   logoUrl: string
 }
 
+/** 队伍摘要（随房间状态下发，用于 BP 棋盘展示队名 + 队标） */
+export interface TeamBrief {
+  id: number
+  name: string
+  logoUrl: string
+}
+
 // 对局
 export interface Game {
   id: number
@@ -73,6 +80,9 @@ export interface BPState {
   matchStatus: 'ongoing' | 'finished'
   blueTeamId: number
   redTeamId: number
+  /** 双方队名 + 队标（后端 buildRoomState 下发；缺失时降级为红蓝方） */
+  blueTeam?: TeamBrief | null
+  redTeam?: TeamBrief | null
   currentTurn: number
   round: number
   action: string

@@ -138,6 +138,13 @@
     "boFormat": 5,
     "blueTeamId": 1,
     "redTeamId": 2,
+    "blueTeam": { "id": 1, "name": "重庆狼队", "logoUrl": "/images/teams/chongqin_wolves.png" },
+    "redTeam": { "id": 2, "name": "成都AG超玩会", "logoUrl": "/images/teams/chengdu_ag.png" },
+    "teamAId": 1,
+    "teamBId": 2,
+    "sidePickerTeamId": 2,
+    "nextBlueTeamId": null,
+    "nextRedTeamId": null,
     "blueScore": 1,
     "redScore": 0,
     "winner": null,
@@ -164,9 +171,17 @@
 | `status` | **本局** BP 状态：`ongoing` / `finished` |
 | `gameNumber` | 当前第几局（1 起） |
 | `boFormat` | 赛制：5 / 7 / 0 |
-| `blueScore` / `redScore` | 系列赛大比分（蓝方 / 红方已胜局数） |
+| `blueTeam` / `redTeam` | 双方队名 + 队标（`{id, name, logoUrl}`）；查不到时为 `null`，前端降级显示"🔵 蓝方 / 红方 🔴" |
+| `teamAId` / `teamBId` | 系列赛**固定队伍身份**，创建后永不改变（选边不影响） |
+| `blueScore` / `redScore` | 大比分的**红蓝视图**（按当前局红蓝归属映射，会随选边而"翻转视图"，但队伍实际得分不变） |
+| `sidePickerTeamId` | 当前拥有选边权的队伍（联机模式 = 败方；单机模式仅落库预留） |
+| `nextBlueTeamId` / `nextRedTeamId` | 已指定的下一局红蓝归属；未指定为 `null` |
 | `winner` | **本局**已提交的胜方 `"blue"` / `"red"`；未提交或进入下一局后为 `null` |
 | `matchStatus` | **整个系列赛**状态：`ongoing` / `finished` |
+
+> ⚠️ **比分语义（重要）**：`team_a_score` / `team_b_score` 落库时**跟队伍身份走**，
+> 而 `blueScore` / `redScore` 是同一组比分在当前红蓝归属下的**视图**。
+> 第 2 局换边后，某队的分不会因为"它从蓝方变成红方"而记到对手名下。
 
 ### `POST /api/rooms/:id/ban` 执行 ban 操作
 
@@ -190,20 +205,40 @@
 - 请求体：`{ "winner": "blue" }`（或 `"red"`）
 - 响应 200：完整房间状态快照，其中大比分已更新、`winner` 已写入
 - 达到赛制所需胜场（BO5=3、BO7=4）时自动置 `matchStatus=finished`
+- 副作用：把**败方**写入 `match_record.side_picker_team_id`（联机模式选边权，单机为预留）；该写入失败只记日志，**不阻断**胜负录入
 - 错误：
   - `400` 本局 BP 尚未完成，不能提交胜负
   - `400` 本局胜方已提交
   - `400` 比赛已结束
 
-### `POST /api/rooms/:id/next-game` 进入下一局
+### `POST /api/rooms/:id/next-game` 进入下一局（可同时选边）
 
 > 触发**全局BP记忆规则**：后端读取上一局 `ban_pick_action`，按规则派生新一局的
 > 英雄权限后创建新引擎。
+>
+> 全局BP限制**跟队伍走、不跟颜色走**：第 2 局选边交换红蓝后，某队上局选过的英雄
+> 依然对该队"可 ban 不可选"，对对手"可选不可 ban"。
 
-- 请求体：无（`{}`）
-- 响应 200：完整房间状态快照，`gameNumber` +1、`currentTurn=1`、四个 ban/pick 列表清空、`winner=null`
+- 请求体（**全部可选**）：
+
+```json
+{
+  "blueTeamId": 2,
+  "redTeamId": 1
+}
+```
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `blueTeamId` / `redTeamId` | 否 | 指定下一局红蓝归属。**二者必须同时提供**，且必须是本场比赛的两支参赛队伍 |
+
+- **不传 body**（`{}`）时沿用当前局红蓝归属，行为与旧版本完全一致（向后兼容）
+- 响应 200：完整房间状态快照，`gameNumber` +1、`currentTurn=1`、四个 ban/pick 列表清空、`winner=null`；若指定了选边，`blueTeamId` / `redTeamId` 已切换，且 `blueScore` / `redScore` 视图已按新归属重新映射（队伍实际得分不变）
 - 错误：
   - `400` 本局 BP 尚未完成 / 请先提交本局胜方 / 比赛已结束
+  - `400` 蓝方与红方不能是同一支队伍
+  - `400` 选边队伍必须是本场比赛的两支参赛队伍
+  - `400` 选边需同时提供 blueTeamId 与 redTeamId
   - `500` 上一局 BP 记录尚未保存完成（防御性检查，稍后重试即可）
 
 ### `POST /api/rooms/:id/finish-match` 手动结束比赛

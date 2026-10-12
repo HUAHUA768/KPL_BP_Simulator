@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 import HeroCard, { HeroIcon } from './HeroCard'
-import type { Hero } from '../types'
+import type { Hero, TeamBrief } from '../types'
 
 interface BanPickBoardProps {
   // 英雄池（当前分路过滤后用于展示）
@@ -23,6 +23,10 @@ interface BanPickBoardProps {
 
   // 有效操作方（由调用方经 resolveActor 算好；组件不再自行判断身份）
   actorSide: string
+
+  // 双方队名 + 队标（问题1）；缺失时降级显示"🔵 蓝方 / 红方 🔴"
+  blueTeam?: TeamBrief | null
+  redTeam?: TeamBrief | null
 }
 
 type SideName = 'blue' | 'red'
@@ -88,6 +92,20 @@ const HEROES_PER_ROW = 10
 const BANS_PER_SIDE = 5
 const PICKS_PER_SIDE = 5
 
+// ---------------------------------------------------------------------------
+// 槽位尺寸分级（问题2）：ban 位相对小、pick 位相对大
+// 禁用只是"标记"，选用才是"成果"，用体量差建立视觉层级。
+//
+// ⚠️ HeroSlot 与 EmptySlot 必须使用同一张表 —— 两者尺寸若不一致，
+//    槽位从"空"到"被填充"的瞬间会发生尺寸跳动，破坏零跳动布局。
+// ---------------------------------------------------------------------------
+type SlotSize = 'ban' | 'pick'
+
+const SLOT_SIZE: Record<SlotSize, { box: string; name: string }> = {
+  ban: { box: 'w-11', name: 'text-[8px]' }, // 2.75rem —— 相对小
+  pick: { box: 'w-16', name: 'text-[9px]' }, // 4rem    —— 相对大
+}
+
 const SLOT_TONE: Record<Owner, { box: string; text: string }> = {
   banned_blue: { box: 'border-blue-500/60 bg-blue-900/30', text: 'text-blue-300' },
   banned_red: { box: 'border-red-500/60 bg-red-900/30', text: 'text-red-300' },
@@ -97,24 +115,26 @@ const SLOT_TONE: Record<Owner, { box: string; text: string }> = {
 
 // ---------------------------------------------------------------------------
 // HeroSlot — 已禁用 / 已选择区统一的固定尺寸槽位
-// 所有槽位结构完全一致（正方形图标 + 固定名称行），因此图标大小绝对统一。
+// 同一 size 下的槽位结构完全一致（正方形图标 + 固定名称行），因此图标大小绝对统一。
 // ---------------------------------------------------------------------------
-const HeroSlot: React.FC<{ name: string; icon?: string; owner: Owner }> = ({
+const HeroSlot: React.FC<{ name: string; icon?: string; owner: Owner; size: SlotSize }> = ({
   name,
   icon,
   owner,
+  size,
 }) => {
   const tone = SLOT_TONE[owner]
+  const dim = SLOT_SIZE[size]
   return (
     <div
       title={name}
-      className={`flex w-14 shrink-0 flex-col items-center overflow-hidden rounded-md border-2 ${tone.box}`}
+      className={`flex ${dim.box} shrink-0 flex-col items-center overflow-hidden rounded-md border-2 ${tone.box}`}
     >
       <div className="relative w-full overflow-hidden rounded-sm bg-gray-900/60 aspect-square">
         <HeroIcon src={icon} name={name} className="absolute inset-0 h-full w-full" />
       </div>
       <span
-        className={`w-full truncate px-0.5 text-center text-[9px] leading-tight ${tone.text}`}
+        className={`w-full truncate px-0.5 text-center leading-tight ${dim.name} ${tone.text}`}
       >
         {name}
       </span>
@@ -147,26 +167,71 @@ const SIDE_TONE: Record<
 // blinking 时挂 slot-blinking class（keyframes 见 index.css），
 // 颜色经 CSS 变量 --blink-color 按回合方区分；动作完成后槽位被 HeroSlot
 // 取代，动画自然消失，无需任何"停止动画"逻辑。
-const EmptySlot: React.FC<{ blinking?: boolean; tone?: SideName }> = ({
+const EmptySlot: React.FC<{ blinking?: boolean; tone?: SideName; size: SlotSize }> = ({
   blinking = false,
   tone,
-}) => (
-  <div
-    className={`flex w-14 shrink-0 flex-col items-center overflow-hidden rounded-md border-2 border-dashed bg-gray-900/20 ${
-      blinking ? 'slot-blinking' : 'border-gray-700/70'
-    }`}
-    style={
-      blinking && tone
-        ? ({ '--blink-color': SIDE_TONE[tone].blinkColor } as React.CSSProperties)
-        : undefined
-    }
-  >
-    <div className="w-full aspect-square" />
-    <span className="w-full px-0.5 text-center text-[9px] leading-tight text-transparent">
-      ·
-    </span>
-  </div>
-)
+  size,
+}) => {
+  const dim = SLOT_SIZE[size]
+  return (
+    <div
+      className={`flex ${dim.box} shrink-0 flex-col items-center overflow-hidden rounded-md border-2 border-dashed bg-gray-900/20 ${
+        blinking ? 'slot-blinking' : 'border-gray-700/70'
+      }`}
+      style={
+        blinking && tone
+          ? ({ '--blink-color': SIDE_TONE[tone].blinkColor } as React.CSSProperties)
+          : undefined
+      }
+    >
+      <div className="w-full aspect-square" />
+      <span
+        className={`w-full px-0.5 text-center leading-tight text-transparent ${dim.name}`}
+      >
+        ·
+      </span>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// TeamHeader — 阵营标题：队标 + 队名（问题1）
+// 无队伍信息时降级为"🔵 蓝方 / 红方 🔴"，保证任何情况下都能看出红蓝归属。
+// 队标加载失败时保留占位块（而非 display:none），避免问题被静默掩盖。
+// ---------------------------------------------------------------------------
+const TeamHeader: React.FC<{
+  team?: TeamBrief | null
+  fallback: string
+  mirrored: boolean
+  labelClass: string
+}> = ({ team, fallback, mirrored, labelClass }) => {
+  const [logoFailed, setLogoFailed] = React.useState(false)
+  const showLogo = !!team?.logoUrl && !logoFailed
+
+  return (
+    <div
+      className={`mb-2 flex items-center gap-2 ${mirrored ? 'flex-row-reverse' : ''}`}
+      title={team?.name || fallback}
+    >
+      {showLogo ? (
+        <img
+          src={team!.logoUrl}
+          alt={team!.name}
+          onError={() => setLogoFailed(true)}
+          className="h-7 w-7 shrink-0 rounded object-contain"
+        />
+      ) : (
+        /* 无队标（或加载失败）：灰色占位块，保持标题行高度稳定 */
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded bg-gray-700/60 text-[10px] text-gray-400">
+          {team?.name?.slice(0, 1) || '队'}
+        </span>
+      )}
+      <span className={`truncate text-sm font-bold ${labelClass}`}>
+        {team?.name || fallback}
+      </span>
+    </div>
+  )
+}
 
 const BanPickBoard: React.FC<BanPickBoardProps> = ({
   heroes,
@@ -181,6 +246,8 @@ const BanPickBoard: React.FC<BanPickBoardProps> = ({
   onBanHero,
   onPickHero,
   actorSide,
+  blueTeam,
+  redTeam,
 }) => {
   // 查名字 / 图标始终使用完整列表
   const heroMap = useMemo(() => {
@@ -253,6 +320,7 @@ const BanPickBoard: React.FC<BanPickBoardProps> = ({
     side === rowSide && action === slotAction ? blinkingIdx : EMPTY_SET
 
   // 单一槽位行：label 可在左（蓝，靠右对齐）或右（红，镜像）
+  // size 决定该行槽位体量（问题2：ban 小 / pick 大）
   const renderSlotRow = (
     ids: (number | null)[],
     owner: Owner,
@@ -261,6 +329,7 @@ const BanPickBoard: React.FC<BanPickBoardProps> = ({
     blink: Set<number>,
     blinkTone: SideName,
     mirrored: boolean,
+    size: SlotSize,
   ) => (
     <div className="flex items-center gap-2">
       {!mirrored && (
@@ -271,13 +340,19 @@ const BanPickBoard: React.FC<BanPickBoardProps> = ({
       <div className="flex flex-1 flex-wrap items-center justify-start gap-1.5">
         {ids.map((id, idx) =>
           id === null ? (
-            <EmptySlot key={`empty-${owner}-${idx}`} blinking={blink.has(idx)} tone={blinkTone} />
+            <EmptySlot
+              key={`empty-${owner}-${idx}`}
+              blinking={blink.has(idx)}
+              tone={blinkTone}
+              size={size}
+            />
           ) : (
             <HeroSlot
               key={`${owner}-${id}`}
               name={getHeroName(id)}
               icon={getHeroIcon(id)}
               owner={owner}
+              size={size}
             />
           ),
         )}
@@ -304,14 +379,13 @@ const BanPickBoard: React.FC<BanPickBoardProps> = ({
           isBlue ? 'border-blue-500/30 bg-blue-900/20' : 'border-red-500/30 bg-red-900/20'
         }`}
       >
-        {/* 阵营标题：红方靠右（镜像对称） */}
-        <div
-          className={`mb-2 text-sm font-bold ${labelClass} ${
-            mirrored ? 'text-right' : 'text-left'
-          }`}
-        >
-          {isBlue ? '🔵 蓝方' : '红方 🔴'}
-        </div>
+        {/* 阵营标题：队标 + 队名（问题1）；红方靠右镜像对称 */}
+        <TeamHeader
+          team={isBlue ? blueTeam : redTeam}
+          fallback={isBlue ? '🔵 蓝方' : '红方 🔴'}
+          mirrored={mirrored}
+          labelClass={labelClass}
+        />
 
         <div className="flex flex-col gap-2">
           {renderSlotRow(
@@ -322,6 +396,7 @@ const BanPickBoard: React.FC<BanPickBoardProps> = ({
             blinkFor(cardSide, 'ban'),
             cardSide,
             mirrored,
+            'ban',
           )}
           {renderSlotRow(
             pickSlots,
@@ -331,6 +406,7 @@ const BanPickBoard: React.FC<BanPickBoardProps> = ({
             blinkFor(cardSide, 'pick'),
             cardSide,
             mirrored,
+            'pick',
           )}
         </div>
       </div>

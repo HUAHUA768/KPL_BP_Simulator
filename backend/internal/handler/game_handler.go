@@ -131,7 +131,7 @@ func (h *GameHandler) ListTeams(c *gin.Context) {
 		result = append(result, gin.H{
 			"id":      t.ID,
 			"name":    t.Name,
-			"logoUrl": t.LogoURL,
+			"logoUrl": normalizeLogoURL(t.LogoURL),
 		})
 	}
 

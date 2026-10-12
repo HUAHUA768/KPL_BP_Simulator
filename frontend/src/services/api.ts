@@ -83,9 +83,19 @@ export async function submitGameResult(
   return res.data.data
 }
 
-/** 进入下一局（后端据此应用全局BP记忆规则） */
-export async function nextGame(roomId: string): Promise<BPState> {
-  const res = await api.post<APIResponse<BPState>>(`/rooms/${roomId}/next-game`, {})
+/** 进入下一局（后端据此应用全局BP记忆规则）
+ *
+ * 选边（问题4）：可选传入下一局的红蓝归属。不传时沿用当前局（向后兼容）。
+ * 单机模式下由用户在局间面板决定谁蓝谁红。
+ */
+export async function nextGame(
+  roomId: string,
+  sides?: { blueTeamId: number; redTeamId: number },
+): Promise<BPState> {
+  const res = await api.post<APIResponse<BPState>>(
+    `/rooms/${roomId}/next-game`,
+    sides ? { blueTeamId: sides.blueTeamId, redTeamId: sides.redTeamId } : {},
+  )
   return res.data.data
 }
 

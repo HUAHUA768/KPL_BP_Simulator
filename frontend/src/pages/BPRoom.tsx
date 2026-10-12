@@ -49,6 +49,12 @@ const BPRoom: React.FC = () => {
   const [submitting, setSubmitting] = useState(false)
   // 队名映射（id → name），用于结算面板显示真实队名
   const [teamNames, setTeamNames] = useState<Record<number, string>>({})
+  // 队标映射（id → logoUrl），用于局间选边 UI 展示
+  const [teamLogos, setTeamLogos] = useState<Record<number, string>>({})
+
+  // 下一局选边（问题4）。null = 沿用当前红蓝归属（默认不换，用户可改）
+  const [nextBlueId, setNextBlueId] = useState<number | null>(null)
+  const [nextRedId, setNextRedId] = useState<number | null>(null)
 
   const blueTeamName =
     (bpState.blueTeamId != null && teamNames[bpState.blueTeamId]) || '蓝方队伍'
@@ -74,6 +80,7 @@ const BPRoom: React.FC = () => {
         setHeroList(heroes)
         updateBPState(state)
         setTeamNames(Object.fromEntries(teams.map((t) => [t.id, t.name])))
+        setTeamLogos(Object.fromEntries(teams.map((t) => [t.id, t.logoUrl])))
         setLoading(false)
       })
       .catch((err) => {
@@ -130,6 +137,24 @@ const BPRoom: React.FC = () => {
       : bpState.redScore > bpState.blueScore
         ? redTeamName
         : null
+
+  // 每局开始时清空选边意图（问题4）。
+  // 否则第 3 局会沿用第 2 局残留的选择，"默认不换"语义会错乱。
+  useEffect(() => {
+    setNextBlueId(null)
+    setNextRedId(null)
+  }, [bpState.gameNumber])
+
+  // 下一局的有效红蓝归属：未选择时 = 沿用当前局（默认不换）
+  const effNextBlueId = nextBlueId ?? bpState.blueTeamId
+  const effNextRedId = nextRedId ?? bpState.redTeamId
+  const sidesChanged =
+    nextBlueId !== null && nextRedId !== null && nextBlueId !== bpState.blueTeamId
+
+  const nameOf = (id: number | null | undefined) =>
+    (id != null && teamNames[id]) || '未知队伍'
+  const logoOf = (id: number | null | undefined) =>
+    id != null ? teamLogos[id] : undefined
 
   if (loading) {
     return (
@@ -261,11 +286,118 @@ const BPRoom: React.FC = () => {
                   提示：下一局将启用全局BP规则——本局双方选用过的英雄，下一局各自不可再选；
                   对手选用过的英雄仍可选（不可 ban）
                 </div>
+
+                {/* 第 N+1 局选边（问题4）：单机模式下由用户决定谁蓝谁红 */}
+                <div className="mt-4 rounded-lg border border-gray-600/60 bg-gray-900/40 p-3 text-left">
+                  <div className="mb-2 text-sm font-bold text-gray-200">
+                    🔄 第 {bpState.gameNumber + 1} 局选边
+                  </div>
+                  <div className="mb-3 flex flex-wrap items-center justify-center gap-2 text-xs text-gray-400">
+                    <span>当前：</span>
+                    {logoOf(bpState.blueTeamId) && (
+                      <img
+                        src={logoOf(bpState.blueTeamId)}
+                        alt={blueTeamName}
+                        className="h-5 w-5 rounded object-contain"
+                      />
+                    )}
+                    <span className="text-blue-400">🔵 {blueTeamName}</span>
+                    <span className="text-gray-500">vs</span>
+                    <span className="text-red-400">🔴 {redTeamName}</span>
+                    {logoOf(bpState.redTeamId) && (
+                      <img
+                        src={logoOf(bpState.redTeamId)}
+                        alt={redTeamName}
+                        className="h-5 w-5 rounded object-contain"
+                      />
+                    )}
+                    <span className="w-full text-center">
+                      单机模式下由你决定下一局红蓝归属；联机模式将由败方选边。
+                    </span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    {/* 蓝方选择 */}
+                    <label className="flex items-center gap-2 text-sm">
+                      <span className="text-blue-400">🔵 蓝方</span>
+                      <select
+                        className="rounded-md border border-gray-600 bg-gray-900 px-2 py-1 text-white focus:border-blue-500 focus:outline-none"
+                        value={effNextBlueId ?? ''}
+                        onChange={(e) => {
+                          const id = Number(e.target.value)
+                          setNextBlueId(id)
+                          // 自动把另一队放到红方，杜绝"两队相同"
+                          setNextRedId(id === bpState.blueTeamId ? bpState.redTeamId : bpState.blueTeamId)
+                        }}
+                      >
+                        {[bpState.blueTeamId, bpState.redTeamId]
+                          .filter((v): v is number => v != null)
+                          .map((id) => (
+                            <option key={`nb-${id}`} value={id}>
+                              {nameOf(id)}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+
+                    <span className="text-gray-500">VS</span>
+
+                    {/* 红方选择 */}
+                    <label className="flex items-center gap-2 text-sm">
+                      <span className="text-red-400">🔴 红方</span>
+                      <select
+                        className="rounded-md border border-gray-600 bg-gray-900 px-2 py-1 text-white focus:border-red-500 focus:outline-none"
+                        value={effNextRedId ?? ''}
+                        onChange={(e) => {
+                          const id = Number(e.target.value)
+                          setNextRedId(id)
+                          setNextBlueId(id === bpState.blueTeamId ? bpState.redTeamId : bpState.blueTeamId)
+                        }}
+                      >
+                        {[bpState.blueTeamId, bpState.redTeamId]
+                          .filter((v): v is number => v != null)
+                          .map((id) => (
+                            <option key={`nr-${id}`} value={id}>
+                              {nameOf(id)}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+
+                    {/* 一键交换红蓝 */}
+                    <button
+                      disabled={submitting}
+                      className="rounded-md border border-gray-500 px-3 py-1 text-xs font-bold text-gray-200 transition-colors hover:border-gray-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={() => {
+                        setNextBlueId(bpState.redTeamId)
+                        setNextRedId(bpState.blueTeamId)
+                      }}
+                    >
+                      ⇄ 交换红蓝
+                    </button>
+                  </div>
+
+                  <div className="mt-2 text-center text-xs text-gray-500">
+                    {sidesChanged
+                      ? `下一局将交换红蓝：🔵 ${nameOf(effNextRedId)} vs 🔴 ${nameOf(effNextBlueId)}`
+                      : '下一局沿用当前红蓝归属（可点「⇄ 交换红蓝」调整）'}
+                  </div>
+                </div>
+
                 <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
                   <button
                     disabled={submitting}
                     className="rounded-md bg-yellow-500 px-4 py-2 text-sm font-bold text-gray-900 transition-colors hover:bg-yellow-400 disabled:cursor-not-allowed disabled:opacity-50"
-                    onClick={() => runAction(nextGame)}
+                    onClick={() =>
+                      runAction((id) =>
+                        nextGame(
+                          id,
+                          effNextBlueId != null && effNextRedId != null
+                            ? { blueTeamId: effNextBlueId, redTeamId: effNextRedId }
+                            : undefined,
+                        ),
+                      )
+                    }
                   >
                     ➡️ 开始第 {bpState.gameNumber + 1} 局 BP
                   </button>
@@ -317,6 +449,8 @@ const BPRoom: React.FC = () => {
           onBanHero={handleBanHero}
           onPickHero={handlePickHero}
           actorSide={actorSide}
+          blueTeam={bpState.blueTeam}
+          redTeam={bpState.redTeam}
         />
       </div>
     </div>

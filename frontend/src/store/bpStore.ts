@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { BPState, Hero, HeroState } from '../types'
+import type { BPState, Hero, HeroState, TeamBrief } from '../types'
 import type { Mode } from '../utils/actor'
 
 // ============================================================================
@@ -15,6 +15,9 @@ interface BPStore {
   status: 'waiting' | 'ongoing' | 'finished' | null
   blueTeamId: number | null
   redTeamId: number | null
+  /** 双方队名 + 队标（问题1；缺失时棋盘降级显示红蓝方） */
+  blueTeam: TeamBrief | null
+  redTeam: TeamBrief | null
 
   // 系列赛（多局）上下文
   matchId: number | null
@@ -55,6 +58,8 @@ const initialState = {
   status: null as 'waiting' | 'ongoing' | 'finished' | null,
   blueTeamId: null,
   redTeamId: null,
+  blueTeam: null as TeamBrief | null,
+  redTeam: null as TeamBrief | null,
   matchId: null,
   gameNumber: 1,
   boFormat: 5,
@@ -105,6 +110,8 @@ export const useBPStore = create<BPStore>((set) => ({
         status: incoming.status as BPStore['status'],
         blueTeamId: incoming.blueTeamId,
         redTeamId: incoming.redTeamId,
+        blueTeam: incoming.blueTeam ?? null,
+        redTeam: incoming.redTeam ?? null,
         matchId: incoming.matchId ?? null,
         gameNumber: incoming.gameNumber ?? 1,
         boFormat: incoming.boFormat ?? 5,
