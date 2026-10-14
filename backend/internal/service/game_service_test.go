@@ -52,6 +52,13 @@ func (m *mockGameRepo) SaveBPAction(a *model.BanPickAction) error {
 	return nil
 }
 
+// DeleteBPActions 删除某局全部 BP 操作（repository.GameRepo 接口要求）。
+// mock 中实现为清空该局的记录，语义与 MySQL 实现一致（用于重建前清理，保证幂等）。
+func (m *mockGameRepo) DeleteBPActions(gameID int) error {
+	delete(m.actions, gameID)
+	return nil
+}
+
 func (m *mockGameRepo) UpdateGameBPCompleted(gameID int, winner *string) error {
 	g, ok := m.games[gameID]
 	if !ok {

@@ -309,6 +309,77 @@ type Engine struct {
 	Permissions      map[int]*HeroPerm // 按队伍区分的操作权限（支持全局BP记忆）
 	Actions          []ActionRecord    // 操作日志（按步序记录，供落库）
 	validator        Validator         // 校验器接口
+
+	// ExclusiveGroups 互斥组（元流之子"五选一"）。
+	//
+	// 语义：同一组内的英雄，**每支队伍本局只能 pick 一个**。一旦某方 pick 了组内任一
+	// 英雄，该方对组内其余英雄的 pick 权立即失效（ban 权不受影响）。
+	//
+	// ⚠️ 为什么必须在 Engine 内部实现（而不像全局BP记忆那样只在 StartGame 派生权限表）：
+	// 全局BP记忆的依据是"上一局"记录，在开局时就是已知常量；
+	// 而互斥锁定的触发点在**本局之内**（"一旦使用了元射，则其它四个都不能再选"），
+	// 权限表在开局时无法预知本局将 pick 谁。因此必须在每次 pick 后动态收紧权限。
+	ExclusiveGroups [][]int
+}
+
+// GroupOf 返回某英雄所属互斥组的索引；不属于任何互斥组时返回 -1。
+func (e *Engine) GroupOf(heroID int) int {
+	for gi, group := range e.ExclusiveGroups {
+		for _, id := range group {
+			if id == heroID {
+				return gi
+			}
+		}
+	}
+	return -1
+}
+
+// lockExclusiveGroupFor 在某方 pick 了 heroID 之后，收紧双方对同组英雄的权限。
+//
+// 施加两条**方向相反**的规则（需求方确认）：
+//
+//  1. pick 方自身：**其余成员**不可再 pick（"只能选一个"），但保留 ban 权
+//  2. 对手方     ：**整组五个**都不可再 ban（"B 队不用再 ban 其它四个元流"）
+//
+// ⚠️ 注意两条规则的**作用范围不同**，这是最容易做错的地方：
+//   - 第 1 条只作用于"其余四个"（用过的那个已被 pick 出池，无需再禁 pick）
+//   - 第 2 条作用于"整组五个"（**包含用过的那个** —— 对手同样不得 ban 它）
+//
+// 施工中先后漏做过第 2 条、以及第 2 条对"用过的那个"的覆盖，见方案 §8.9 / §9.7。
+func (e *Engine) lockExclusiveGroupFor(side TeamSide, heroID int) {
+	gi := e.GroupOf(heroID)
+	if gi < 0 {
+		return
+	}
+	for _, id := range e.ExclusiveGroups[gi] {
+		p := e.Permissions[id]
+		if p == nil {
+			continue
+		}
+		// 不复活赛事禁用（四布尔全 false 的条目保持原样）
+		if !p.BlueCanBan && !p.BlueCanPick && !p.RedCanBan && !p.RedCanPick {
+			continue
+		}
+
+		// (2) 对手 ban 剥夺：对**整组五个**生效（含 heroID 自身）
+		switch side {
+		case Blue:
+			p.RedCanBan = false
+		case Red:
+			p.BlueCanBan = false
+		}
+
+		// (1) pick 方不可再选：只对**其余四个**生效
+		if id == heroID {
+			continue // 它自己已被 pick 移出英雄池，本局天然不可再选
+		}
+		switch side {
+		case Blue:
+			p.BlueCanPick = false // 蓝方（pick 方）不可再选；蓝方 ban 权保留
+		case Red:
+			p.RedCanPick = false // 红方（pick 方）不可再选；红方 ban 权保留
+		}
+	}
 }
 
 // ActionRecord 单步操作的顺序记录（供 game_service 落库还原）
@@ -352,6 +423,16 @@ func NewBPEngineWithPerms(blueTeamID, redTeamID int, permissions map[int]*HeroPe
 		}
 	}
 	return newEngine(blueTeamID, redTeamID, pool, permissions, tournamentBanned, validator)
+}
+
+// SetExclusiveGroups 注册互斥组（元流之子"五选一"），须在 Start() 之前调用。
+//
+// 每个组内的英雄"每方本局只能 pick 一个"：某方 pick 组内任一英雄后，
+// 该方对组内其余英雄的 pick 权立即失效（ban 权不受影响）。详见 Engine.ExclusiveGroups。
+//
+// 传 nil / 空切片表示无互斥组（旧行为，完全向后兼容）。
+func (e *Engine) SetExclusiveGroups(groups [][]int) {
+	e.ExclusiveGroups = groups
 }
 
 func newEngine(blueTeamID, redTeamID int, heroPool map[int]bool, perms map[int]*HeroPerm, tournamentBanned map[int]bool, validator Validator) *Engine {
@@ -630,6 +711,11 @@ func (e *Engine) handlePick(side TeamSide, heroID int) error {
 	case Red:
 		e.RedPicked = append(e.RedPicked, heroID)
 	}
+
+	// 互斥组（元流之子"五选一"）：本局该方已用过组内英雄 → 立刻锁死其余成员
+	// ⚠️ 必须在 append 之后调用（依赖本步已被记为"已 pick"）
+	e.lockExclusiveGroupFor(side, heroID)
+
 	return nil
 }
 
