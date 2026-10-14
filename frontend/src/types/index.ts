@@ -115,6 +115,9 @@ export interface MatchRecord {
 export interface HeroState {
   id: number
   status: string
+  /** 该英雄对蓝/红两方的 ban/pick 权限（全局BP记忆 + 赛事禁用）。
+   *  后端 buildRoomState 下发，前端据此提前置灰禁用，而非点击后才报错。 */
+  permissions?: HeroPermissions
 }
 
 // 房间

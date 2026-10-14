@@ -150,6 +150,9 @@ func (s *GameService) applyGlobalBPMemory(
 // FinishGame 一局 BP 完成后收尾：
 //  1. 把 Engine.Actions 落库为 ban_pick_action 记录（按步序）
 //  2. 更新 game 表的 bp_completed = true 及 winner（如有）
+// FinishGame 一局 BP 完成后收尾：
+//  1. 补齐落库 BP 操作记录（与已增量落库的步骤对账，不重复插入）
+//  2. 更新 game 表的 bp_completed = true 及 winner（如有）
 func (s *GameService) FinishGame(gameID int, engine *Engine, winner *string) error {
 	if gameID <= 0 {
 		return fmt.Errorf("无效的 gameID=%d", gameID)
@@ -158,8 +161,24 @@ func (s *GameService) FinishGame(gameID int, engine *Engine, winner *string) err
 		return fmt.Errorf("BP 尚未完成，不能收尾")
 	}
 
-	// 1. 落库 BP 操作记录
+	// 1. 读取已落库步骤，按 step_order 建索引
+	existing, err := s.gameRepo.ListBPActions(gameID)
+	if err != nil {
+		return fmt.Errorf("读取已落库BP记录失败: %w", err)
+	}
+	seen := make(map[int]bool, len(existing))
+	for _, a := range existing {
+		seen[a.StepOrder] = true
+	}
+
+	// 2. 补齐缺失步骤（幂等）。
+	// 房间层现在会**每步增量落库**（见 RoomHandler.persistAction），
+	// 因此这里是对账补齐语义，只写入 DB 中尚不存在的 step_order，
+	// 既兼容旧的"结束时一次性写"路径，也不会产生重复步骤。
 	for _, rec := range engine.Actions {
+		if seen[rec.StepOrder] {
+			continue
+		}
 		actionType := rec.Action.String()
 		side := "blue"
 		if rec.Side == Red {
@@ -177,7 +196,7 @@ func (s *GameService) FinishGame(gameID int, engine *Engine, winner *string) err
 		}
 	}
 
-	// 2. 标记 BP 完成
+	// 3. 标记 BP 完成
 	return s.gameRepo.UpdateGameBPCompleted(gameID, winner)
 }
 

@@ -59,6 +59,7 @@ INSERT INTO hero (name, icon_path, lanes) VALUES
 ('杨玉环', '/images/heroes/yang_yu_huan.png', '["中路","游走"]'),
 ('沈梦溪', '/images/heroes/shen_meng_xi.png', '["中路"]'),
 ('司马懿', '/images/heroes/si_ma_yi.png', '["中路","打野"]'),
+('王维', '/images/heroes/wang_wei.png', '["中路"]'),
 ('王昭君', '/images/heroes/wang_zhao_jun.png', '["中路"]'),
 ('武则天', '/images/heroes/wu_ze_tian.png', '["中路"]'),
 ('西施', '/images/heroes/xi_shi.png', '["中路"]'),

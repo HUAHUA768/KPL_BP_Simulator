@@ -80,6 +80,8 @@ func main() {
 		// 对局相关
 		api.GET("/games", gameHandler.ListGames)
 		api.GET("/matches", gameHandler.ListMatches)
+		// 从对局记录恢复房间，继续模拟 BP（未结束的比赛）
+		api.POST("/matches/:id/resume", roomHandler.ResumeRoomFromMatch)
 	}
 
 	// WebSocket 路由

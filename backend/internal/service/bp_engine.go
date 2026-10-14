@@ -204,6 +204,34 @@ const (
 	HeroUnknown                            // 英雄ID不存在（不属于任何列表）
 )
 
+// HeroStatusOf 导出某英雄的全局状态（供上层序列化下发给前端）。
+// 与 heroStatus 的区别：本方法可在包外调用，且不改变任何状态。
+func (e *Engine) HeroStatusOf(heroID int) HeroStatus {
+	return e.heroStatus(heroID)
+}
+
+// String 返回 HeroStatus 的前端契约字符串（与前端 types/index.ts 的 HeroStatus 枚举一致）
+func (s HeroStatus) String() string {
+	switch s {
+	case HeroAvailable:
+		return "available"
+	case HeroTournamentBanned:
+		return "tournament_banned"
+	case HeroBannedByBlue:
+		return "banned_by_blue"
+	case HeroBannedByRed:
+		return "banned_by_red"
+	case HeroPickedByBlue:
+		return "picked_by_blue"
+	case HeroPickedByRed:
+		return "picked_by_red"
+	case HeroRestrictedByRule:
+		return "restricted_by_rule"
+	default:
+		return "unknown"
+	}
+}
+
 // HeroPerm 单个英雄对蓝/红两队的操作权限（4个独立布尔）
 // 支持全局BP记忆模式下的不对称权限，例如：
 //
@@ -426,6 +454,50 @@ func (e *Engine) Advance() {
 // IsFinished 判断是否完成
 func (e *Engine) IsFinished() bool {
 	return e.State == StateFinished
+}
+
+// ============================================================================
+// 恢复（继续模拟 BP）
+// ============================================================================
+
+// ReplayAction 按已落库的历史重建引擎状态（"继续模拟 BP"用）。
+//
+// 与 ExecuteAction 的区别：
+//   - **跳过 validator 校验**：这些步骤当初已被接受并落库，属于既成事实；
+//     重新校验反而可能因规则演进误判（例如权限表在恢复时尚未派生）。
+//   - **仍按当前 CurrentTurn 推断 side/action**，因此调用前引擎必须处于
+//     "从头开始"的初始状态，且历史必须是从第 1 步起的连续前缀。
+//
+// 返回值 error 仅表示"历史与状态机序列不自洽"（数据损坏），调用方应据此放弃恢复，
+// 而不是把它当成普通的操作被拒。
+func (e *Engine) ReplayAction(heroID int) error {
+	if e.State != StateRunning {
+		if err := e.Start(); err != nil {
+			return err
+		}
+	}
+	if e.CurrentTurn == TurnInvalid || e.CurrentTurn > TurnMax {
+		return fmt.Errorf("回放越界：当前步=%d 已超出 20 步", int(e.CurrentTurn))
+	}
+
+	info := getTurnInfo(e.CurrentTurn)
+
+	// 直接落到 handler：状态（HeroPool / Banned / Picked / Actions）的变更与正常流程完全一致
+	switch info.Action {
+	case Ban:
+		if err := e.handleBan(info.Side, heroID); err != nil {
+			return fmt.Errorf("回放第%d步(ban)失败: %w", int(e.CurrentTurn), err)
+		}
+	case Pick:
+		if err := e.handlePick(info.Side, heroID); err != nil {
+			return fmt.Errorf("回放第%d步(pick)失败: %w", int(e.CurrentTurn), err)
+		}
+	default:
+		return fmt.Errorf("回放第%d步失败: 未知动作", int(e.CurrentTurn))
+	}
+
+	e.Advance()
+	return nil
 }
 
 // ============================================================================

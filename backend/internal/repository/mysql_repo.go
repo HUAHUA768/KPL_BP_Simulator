@@ -83,6 +83,11 @@ func (r *MySQLGameRepo) SaveBPAction(a *model.BanPickAction) error {
 	return r.db.Create(a).Error
 }
 
+// DeleteBPActions 删除某局全部 BP 操作（重建/回放前清理，保证不产生重复步骤）
+func (r *MySQLGameRepo) DeleteBPActions(gameID int) error {
+	return r.db.Where("game_id = ?", gameID).Delete(&model.BanPickAction{}).Error
+}
+
 func (r *MySQLGameRepo) UpdateGameBPCompleted(gameID int, winner *string) error {
 	updates := map[string]interface{}{
 		"bp_completed": true,
@@ -160,6 +165,21 @@ func (r *MySQLMatchRepo) UpdateProgress(id, aScore, bScore, currentGameNum int, 
 func (r *MySQLMatchRepo) UpdateSidePicker(id, teamID int) error {
 	return r.db.Model(&model.MatchRecord{}).Where("id = ?", id).
 		Update("side_picker_team_id", teamID).Error
+}
+
+// SetRoomID 写入房间号（恢复对局用）
+func (r *MySQLMatchRepo) SetRoomID(id int, roomID string) error {
+	return r.db.Model(&model.MatchRecord{}).Where("id = ?", id).
+		Update("room_id", roomID).Error
+}
+
+// GetByRoomID 按房间号反查比赛记录
+func (r *MySQLMatchRepo) GetByRoomID(roomID string) (*model.MatchRecord, error) {
+	var m model.MatchRecord
+	if err := r.db.Where("room_id = ?", roomID).First(&m).Error; err != nil {
+		return nil, err
+	}
+	return &m, nil
 }
 
 func (r *MySQLMatchRepo) ListRecent(limit int) ([]*model.MatchRecord, error) {

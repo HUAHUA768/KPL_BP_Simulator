@@ -202,12 +202,14 @@ func (h *RoomHandler) CreateRoom(c *gin.Context) {
 	roomID := generateRoomID()
 
 	// 1. 落库：一场系列赛（team_a = 蓝方，team_b = 红方）
+	// room_id 一并落库，使"比赛记录 → 房间"可反查，支持后端重启后继续模拟 BP
 	matchID, err := h.matchRepo.CreateMatch(&model.MatchRecord{
 		TeamAID:        req.BlueTeamID,
 		TeamBID:        req.RedTeamID,
 		CurrentGameNum: 1,
 		BoFormat:       boFormat,
 		Status:         "ongoing",
+		RoomID:         &roomID,
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": -1, "message": "创建比赛记录失败"})
@@ -340,6 +342,12 @@ func (h *RoomHandler) handleAction(c *gin.Context, actionType service.ActionType
 	}
 
 	room.Engine.Advance()
+
+	// 增量落库：每步立即写入 ban_pick_action（而非等本局结束才写）。
+	// 这是"继续模拟 BP"能恢复到中间进度的前提 —— 否则中途退出/重启后无从回放。
+	h.persistAction(room)
+
+	// 本局 BP 刚走完 → 收尾（标记 bp_completed）
 	h.persistIfFinished(room)
 
 	// 广播状态更新
@@ -604,7 +612,47 @@ func (h *RoomHandler) WebSocketHandler(c *gin.Context) {
 // 内部辅助方法
 // ============================================================================
 
-// persistIfFinished 一局 BP 刚完成时落库（20 步 Actions + bp_completed）。
+// persistAction 增量落库"最新一步"BP 操作（调用方须已持有 room.mu）。
+//
+// 为什么是增量而非一次性：只有每步都落库，房间在中间进度丢失后
+// （后端重启 / 进程崩溃）才能靠回放恢复到第 N 步。
+//
+// 幂等策略：按 step_order 判断是否已存在；已存在则跳过，
+// 因此重复调用（如重放）不会产生重复步骤。
+func (h *RoomHandler) persistAction(room *Room) {
+	actions := room.Engine.Actions
+	if len(actions) == 0 {
+		return
+	}
+	last := actions[len(actions)-1]
+
+	// 该步是否已落库？已存在则直接返回（避免重复插入）
+	existing, err := h.gameRepo.ListBPActions(room.GameID)
+	if err == nil {
+		for _, a := range existing {
+			if a.StepOrder == last.StepOrder {
+				return
+			}
+		}
+	}
+
+	side := "blue"
+	if last.Side == service.Red {
+		side = "red"
+	}
+	if err := h.gameRepo.SaveBPAction(&model.BanPickAction{
+		GameID:     room.GameID,
+		StepOrder:  last.StepOrder,
+		ActionType: last.Action.String(),
+		Side:       side,
+		HeroID:     last.HeroID,
+	}); err != nil {
+		// 落库失败不阻塞 BP 流程，但必须留痕（否则恢复时会缺步）
+		log.Printf("[room] 第%d步落库失败(gameID=%d): %v", last.StepOrder, room.GameID, err)
+	}
+}
+
+// persistIfFinished 一局 BP 刚完成时落库（标记 bp_completed）。
 // 调用方必须已持有 room.mu。引擎完成后 ExecuteAction 会拒绝后续操作，
 // 天然防重；Persisted 标志是双保险。
 func (h *RoomHandler) persistIfFinished(room *Room) {
@@ -623,34 +671,35 @@ func (h *RoomHandler) buildRoomState(roomID string, room *Room) gin.H {
 	engine := room.Engine
 	info := engine.GetTurnInfo()
 
-	// 构建英雄状态列表
-	heroes := make([]gin.H, 0)
-	for heroID := range engine.HeroPool {
+	// 构建英雄状态列表。
+	//
+	// 关键（问题3/4）：必须把每个英雄对**蓝/红两方**的 ban/pick 权限一并下发，
+	// 前端才能"提前"把受限英雄置灰禁用，而不是等用户点了才收到无效操作提示。
+	// 权限的唯一事实来源是 engine.Permissions（全局BP记忆 + 赛事禁用都在里面），
+	// 这里只做序列化，不重复任何规则判断。
+	heroes := make([]gin.H, 0, len(engine.Permissions))
+	for heroID, perm := range engine.Permissions {
+		// 已从英雄池移除（已被ban/pick）的英雄仍下发权限位，前端据 status 灰显；
+		// 仍在池中的给 available，池外的按全局状态给具体原因。
+		status := "available"
+		if !engine.HeroPool[heroID] {
+			status = heroStatusString(engine.HeroStatusOf(heroID))
+		} else if !perm.CanBan(service.Blue) && !perm.CanPick(service.Blue) &&
+			!perm.CanBan(service.Red) && !perm.CanPick(service.Red) {
+			// 双方都不可操作 → 赛事禁用
+			status = "tournament_banned"
+		}
+
 		heroes = append(heroes, gin.H{
 			"id":     heroID,
-			"status": "available",
+			"status": status,
+			"permissions": gin.H{
+				"blueCanBan":  perm.CanBan(service.Blue),
+				"blueCanPick": perm.CanPick(service.Blue),
+				"redCanBan":   perm.CanBan(service.Red),
+				"redCanPick":  perm.CanPick(service.Red),
+			},
 		})
-	}
-	// 补充 Permissions 中的英雄
-	for heroID, perm := range engine.Permissions {
-		found := false
-		for _, h := range heroes {
-			if h["id"] == heroID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			status := "available"
-			if !perm.CanBan(service.Blue) && !perm.CanPick(service.Blue) &&
-				!perm.CanBan(service.Red) && !perm.CanPick(service.Red) {
-				status = "tournament_banned"
-			}
-			heroes = append(heroes, gin.H{
-				"id":     heroID,
-				"status": status,
-			})
-		}
 	}
 
 	status := "ongoing"

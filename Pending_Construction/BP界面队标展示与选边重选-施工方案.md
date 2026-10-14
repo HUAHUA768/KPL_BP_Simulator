@@ -978,3 +978,230 @@ id    name  name_hex    icon_path                  lanes
 2. **联机（dual）模式的"败方自动选边"交互未启用**，本次仅完成 `side_picker_team_id` 落库预留。
 3. `backend/internal/handler/hero_handler.go` 等文件存在**既存的 gofmt 未格式化**问题（非本次改动引入），
    未一并处理以免污染本次 diff。
+
+---
+
+## 九、第二轮：实战反馈的 4 个新问题（已完工）
+
+> 📅 完工日期：2026-10-12 ｜ ✅ 全部验收通过
+>
+> 第一轮上线后实战测试反馈了 4 个问题。其中 **#3/#4 与 §8.1 的选边改动直接相关**，
+> 是"选边功能上线后暴露出的前端信息缺口"。
+
+### 9.1 问题与根因
+
+| # | 反馈现象 | 根因（实测确认） |
+|---|---------|-----------------|
+| 1 | 历史记录里两队显示为"红蓝方"而非队名；一换边 BP 信息归属就错乱 | `GameResultTable` 中 `队伍{id}` 占位符 + 表头把 `teamA/teamB` **硬编码**标成 🔵/🔴。而红蓝是**每局**概念（第 2 局可能换边），`game.blueTeamId/redTeamId` 才是当真实归属 |
+| 2 | 需要新增英雄**王维**（中路） | 图标 `wang_wei.png` 只存在于后端目录，DB/seed 中均无记录 |
+| 3 | RW 已用敖隐+不知火舞，狼队不能 ban 敖隐（✅生效），但 **RW 仍能再选火舞**（❌） | **后端规则其实是正确的**（实测再审火舞会被拒绝）。真实缺口是：前端 `isHeroActionable` **只看 ban/pick 占用状态，完全不读权限表**，所以受限英雄看起来仍可点，用户以为"没被限制" |
+| 4 | 狼队 ban 敖隐时确实 ban 不了，但图标不变灰不打叉，只弹"敖隐不可ban" | 同 #3：后端**从未把 `permissions` 下发给前端**。`HeroState.permissions` 在前端类型里定义了却始终为空 |
+
+> **一句话根因**：#3 与 #4 是**同一个缺陷的两种表现** ——
+> 后端有完整权限判定（`HeroPerm` 4 布尔）但**不下发**；前端只能靠"点了才知道"。
+
+### 9.2 修复内容
+
+**(1) 后端：把每英雄权限表随状态下发**（`buildRoomState`）
+
+```go
+"heroes": [ { "id": 14, "status": "available",
+              "permissions": {"blueCanBan":true,"blueCanPick":true,
+                              "redCanBan":true,"redCanPick":true} } ]
+```
+
+- 权限唯一事实来源仍是 `engine.Permissions`，`buildRoomState` **只做序列化**，不重复规则判断；
+- 顺带修正了原实现"从 `HeroPool` 造 heroes、只给 `available`"导致 `status` 永远无意义的问题：
+  现在用 `engine.HeroStatusOf()` 给出真实状态（`banned_by_blue` / `picked_by_red` / `restricted_by_rule` …）；
+- 新增 `HeroStatus.String()` 与 `Engine.HeroStatusOf()` 导出方法。
+
+**(2) 前端：提前置灰禁用**（问题3/4 的用户诉求）
+
+- `BanPickBoard` 新增 `heroStates` prop，构建 `permMap`；
+  新增 `isBlockedByRule(heroId)`：按**当前方 + 当前动作**查对应布尔位；
+- `isHeroActionable = 未被 ban/pick 占用 && !isBlockedByRule` → 受限英雄**直接不可点击**；
+- `HeroCard` 新增 `restricted` prop：**变灰（grayscale）+ 禁用光标 + 叠加「限」角标**
+  （与被 ban/pick 的「禁」「蓝」「红」角标区分），`title` 说明"受全局BP规则限制"；
+- 权限字段缺失时（旧快照）**保守放行**，交由后端裁决，避免误禁用。
+
+**(3) 历史页显示真实队名**（问题1）
+
+- `GameResultTable` 增加 `getTeamName`，每局用**本局** `game.blueTeamId/redTeamId` 解析队名，
+  显示为「🔵 济南RW侠 / 🔴 重庆狼队」；胜方列也改为显示**真实队名 + 胜**；
+- `MatchCard` 头部的总比分**去掉 🔵/🔴 标注**（大比分跟队伍身份走、与红蓝无关），
+  加"（总比分）"说明，避免换边后误导；
+- 每局队名列恢复显示（`showTeams`）。
+
+**(4) 新增英雄王维**（问题2）
+
+- `backend/migrations/007_add_hero_wang_wei.sql`：`INSERT ... WHERE NOT EXISTS` 幂等插入；
+- `002_seed_data.sql` 中路分组按拼音补入（`wang_wei` 排在 `wang_zhao_jun` 之前）；
+- 图标同步到 `frontend/public/images/heroes/wang_wei.png`（与后端 md5 一致）；
+- 顺带清理了 Windows 下载残留的 `wang_wei.png:Zone.Identifier` 垃圾文件。
+
+### 9.3 验收结果
+
+| # | 判据 | 结果 |
+|---|------|------|
+| 2.1 | 王维出现在英雄列表 | ✅ id=133，`lanes=["中路"]`，总英雄数 133 |
+| 2.2 | 迁移 007 幂等 | ✅ 连跑两次仍 133 行、无重复 |
+| 2.3 | 图标经前端代理可取 | ✅ `/images/heroes/wang_wei.png` → 200 |
+| 3.1 | 权限表随状态下发 | ✅ 133/133 个英雄均带 `permissions` |
+| 3.2 | 狼队(蓝)不可 ban 敖隐 | ✅ `blueCanBan=False` |
+| 3.3 | RW(红)不可再选火舞 | ✅ `redCanPick=False` |
+| 3.4 | **换边后限制仍跟队伍** | ✅ 第2局换边后 RW 变蓝：`blueCanPick=False`(RW不可再选)、狼队变红：`redCanPick=True` 且 `redCanBan=False` |
+| 4.1 | 受限英雄前端变灰禁用 | ✅ `isHeroActionable` 返回 false → 卡片灰化 + 禁用光标 + 「限」角标 |
+| 1.1 | 历史页每局显示真实队名 | ✅ 每局按 `game.blueTeamId/redTeamId` 解析，换边后正确 |
+| 1.2 | 胜方显示队名 | ✅ 「🔵 重庆狼队 胜」 |
+| 1.3 | 总比分不误导 | ✅ 头部去掉红蓝标注 |
+| — | 回归：BO5 换边全程 | ✅ 视图随换边翻转、`team_a_score=3 / team_b_score=0` 始终跟队伍 |
+| — | 构建 | ✅ 后端 build+gofmt、前端 tsc+build 全通过 |
+
+**问题2/3 的验证场景（与用户描述完全一致）**：
+
+```
+第1局: 济南RW侠(红) 选了 敖隐 + 不知火舞
+第2局(不换边): 重庆狼队=蓝, 济南RW侠=红
+  敖隐   permissions = {blueCanBan:False, blueCanPick:True, redCanBan:True, redCanPick:False}
+    -> 狼队(蓝)不可ban ✅（用户反馈已生效，保持一致）
+    -> RW(红)不可pick  ✅（本轮修复：前端现在会直接置灰）
+  不知火舞 permissions = {blueCanBan:False, blueCanPick:True, redCanBan:True, redCanPick:False}
+    -> RW(红)不可再选 ✅
+```
+
+> 📌 **关于"问题3 后端到底有没有 bug"**：实测证明**后端规则本身是正确的**
+> （直接调 API 再选火舞会被拒绝）。用户感知到的"RW 依然可以选择火舞"，
+> 本质是前端没有把受限英雄置灰，导致该英雄看起来仍可点选。
+> 本轮通过下发 `permissions` + 前端提前禁用，从体验上彻底解决。
+
+### 9.4 本轮改动文件
+
+| 层 | 文件 | 说明 |
+|----|------|------|
+| DB | `backend/migrations/007_add_hero_wang_wei.sql` | 新建：幂等插入王维 |
+| DB | `backend/migrations/002_seed_data.sql` | 中路分组补入王维 |
+| 资源 | `frontend/public/images/heroes/wang_wei.png` | 新增（与后端同步） |
+| 后端 | `internal/handler/room_handler.go` | `buildRoomState` 下发 `permissions` + 真实 `status` |
+| 后端 | `internal/service/bp_engine.go` | 新增 `HeroStatusOf()` 与 `HeroStatus.String()` |
+| 后端 | `internal/handler/team_brief.go` | 新增 `heroStatusString()` |
+| 前端 | `src/types/index.ts` | `HeroState.permissions` 落地 |
+| 前端 | `src/components/BanPickBoard.tsx` | `heroStates` prop + `isBlockedByRule` 置灰判定 |
+| 前端 | `src/components/HeroCard.tsx` | `restricted` prop：灰化 + 禁用光标 + 「限」角标 |
+| 前端 | `src/components/GameResultTable.tsx` | 每局真实队名、胜方队名、总比分去红蓝标注 |
+| 前端 | `src/pages/BPRoom.tsx` | 透传 `heroStates` |
+| 文档 | `docs/API.md`、`README.md` | `permissions` 语义与前端置灰说明 |
+---
+
+## 十、第三轮：从未结束的对局记录继续模拟 BP（已完工）
+
+> 📅 完工日期：2026-10-12 ｜ ✅ 全部验收通过
+>
+> 新功能需求：**对局记录里，还未结束的比赛，可以选中它然后继续模拟 BP。**
+
+### 10.1 难点：房间只存在于内存
+
+这个需求比表面看起来难，因为原架构有一条硬伤：
+
+- `Room`（含 `Engine` 全部 BP 状态）**只存在于 `RoomHandler.rooms` 内存 map 中**；
+- `roomId` 由 `generateRoomID()` 随机生成，**从未落库**；
+- 因此后端一重启，DB 里 `status='ongoing'` 的比赛就彻底回不到房间 —— 历史页只能看，不能继续。
+
+### 10.2 方案
+
+**(1) 落库 `room_id`**（迁移 008）
+
+`match_record` 新增 `room_id`（唯一索引，可空），使"比赛记录 → 房间"可反查。
+建表用存储过程包裹 `information_schema` 判断，保证**幂等**（MySQL 8.0 无 `ADD COLUMN IF NOT EXISTS`）。
+
+**(2) 重建房间**（新增 `backend/internal/handler/resume_handler.go`）
+
+```
+match_record        → 固定身份 team_a/team_b、赛制、大比分、room_id
+game(当前局)         → 该局红蓝归属、胜方、bp_completed
+ban_pick_action     → 当前局已走的 N 步 → 逐字节回放
+```
+
+恢复目标 = **当前进度**：
+- BP 未走完 → 回放到第 N 步，停在第 N+1 步继续
+- BP 已走完但未录胜负 → 引擎置 `finished`，前端直接进结算面板
+- 第 2 局起 → 用**该局**的 `blue_team_id/red_team_id`（而非首局），故换边后归属正确
+
+引擎侧新增 `Engine.ReplayAction()`：复用 `handleBan/handlePick` 保证状态变更路径与正常流程
+**完全一致**，但**跳过 validator 校验**（历史步骤是既成事实，重新校验可能因规则演进误判）。
+
+**(3) ⚠️ 关键前提修复：BP 步骤改为增量落库**
+
+回放要求 `ban_pick_action` 里有"中途进度"，但实测发现：
+
+```
+中途走到第 7 步 → DB 中 game 81 的 actions = 0 条
+```
+
+原因：步骤**只在整局结束时**由 `FinishGame` 一次性写入。
+不修这个，"恢复到中间进度"无从谈起，第一版恢复实现正是因此**回放 0 步**。
+
+修复：
+- 新增 `RoomHandler.persistAction()`：每步执行后立即落库（按 `step_order` 判重，幂等）；
+- `FinishGame` 从"全量插入"改为**对账补齐**（只写 DB 中尚不存在的 `step_order`），
+  既兼容旧路径，又不会与增量写入产生重复；
+- `GameRepo` 新增 `DeleteBPActions()`（供重建前清理）。
+
+**(4) 接口与前端**
+
+- 新增 `POST /api/matches/:id/resume` → 返回 `{ roomId, state }`，前端跳 `/room/{roomId}`；
+- **幂等**：房间已在内存中直接复用，不重复回放；
+- 历史页 `MatchCard` 为 `status='ongoing'` 的比赛增加「▶ 继续模拟 BP」按钮，
+  并显示进度提示（如"第1局 BP 进行中（7/20步）"）。
+
+### 10.3 验收结果
+
+**核心用例：中途停止 → 杀掉后端 → 重启 → 恢复**（最关键的一条）
+
+| 步骤 | 结果 |
+|------|------|
+| 第 1 局走到第 7 步（turn=8）后停止后端 | 蓝ban=[白起,程咬金] 红pick=[关羽,花木兰] |
+| DB 校验增量落库 | ✅ `actions=7, bp_completed=0` |
+| 重启后 `POST /matches/:id/resume` | ✅ 恢复到 turn=8，四个 ban/pick 列表**逐项一致** |
+| 幂等（再次 resume） | ✅ 复用同一 roomId |
+| 继续走完剩余 13 步 | ✅ `status=finished`，共 20 步 |
+| DB 最终校验 | ✅ `actions=20, distinct_steps=20`（无重复） |
+
+**其余场景**
+
+| 场景 | 判据 | 结果 |
+|------|------|------|
+| A. BP 已走完、未录胜负 | 恢复后 `status=finished` 且 `winner=null` | ✅ 前端直接进结算面板 |
+| B. 第 2 局已换边、中途恢复 | 局号/步号/红蓝归属全部正确 | ✅ `gameNumber=2, turn=6, 蓝=13 红=1` |
+| C. 恢复后全局BP记忆权限 | 第1局选过的英雄，第2局该队仍不可再选 | ✅ `blueCanPick=False`（狼队）、`redCanPick=True/redCanBan=False`（RW） |
+| D. 已结束的比赛 | `400 该比赛已结束，无法继续` | ✅ |
+| E. 恢复后再打完整个系列赛 | 换边/比分/夺冠逻辑不受影响 | ✅ |
+
+> **场景 C 是容易漏掉的一条**：恢复时必须保证 `permissions` 也被正确重建，
+> 否则前端会把受限英雄当可用的。实测确认 `StartGame` 在重建时会重新读取上一局
+> `ban_pick_action` 派生权限，因此**权限与恢复前完全一致**。
+
+### 10.4 本轮改动文件
+
+| 层 | 文件 | 说明 |
+|----|------|------|
+| DB | `backend/migrations/008_match_add_room_id.sql` | 新建：`match_record.room_id` + 唯一索引（幂等） |
+| 后端 | `internal/handler/resume_handler.go` | 新建：`ResumeRoomFromMatch` / `ensureRoom` / `rebuildRoom` |
+| 后端 | `internal/handler/room_handler.go` | `persistAction()` 逐步落库；`CreateRoom` 落 `room_id` |
+| 后端 | `internal/service/bp_engine.go` | 新增 `ReplayAction()`（跳过校验的状态回放） |
+| 后端 | `internal/service/game_service.go` | `FinishGame` 改为对账补齐 |
+| 后端 | `internal/repository/game_repo.go` + `mysql_repo.go` | 新增 `DeleteBPActions` |
+| 后端 | `internal/repository/match_repo.go` + `mysql_repo.go` | 新增 `SetRoomID` / `GetByRoomID` |
+| 后端 | `internal/model/game.go` | `MatchRecord.RoomID` |
+| 后端 | `cmd/server/main.go` | 注册 `POST /api/matches/:id/resume` |
+| 前端 | `src/services/api.ts` | `resumeMatch()` |
+| 前端 | `src/components/GameResultTable.tsx` | `MatchCard` 增加「▶ 继续模拟 BP」+ 进度提示 |
+| 前端 | `src/pages/HistoryPage.tsx` | 恢复处理 + 跳转房间 |
+| 文档 | `docs/API.md`、`README.md` | 新接口、`room_id`、每局红蓝归属说明 |
+
+### 10.5 遗留事项
+
+1. **旧数据（本轮之前的比赛）没有 `room_id`**：恢复时会在内存中新建房间号并回写，
+   因此旧比赛**同样可以恢复**，只是首次恢复后房间号会变。
+2. 本轮之前的历史比赛若 `ban_pick_action` 不完整（旧逻辑只在结束时写），
+   恢复只能回到"该局最后一局的已落库状态"；本轮之后新产生的比赛不受影响。
+3. 房间仍无自动过期/清理机制，长时间运行会累积内存（原架构既有问题，未在本次范围内）。

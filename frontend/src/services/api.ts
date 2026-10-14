@@ -121,6 +121,21 @@ export async function getMatches(): Promise<MatchRecord[]> {
   return res.data.data
 }
 
+/**
+ * 从未结束的对局记录恢复房间，继续模拟 BP。
+ *
+ * 后端优先复用内存中的房间；若后端已重启（房间丢失），
+ * 则依据 game / ban_pick_action 回放重建，恢复到"当前进度"。
+ * 返回可直接跳转的 roomId。
+ */
+export async function resumeMatch(matchId: number): Promise<string> {
+  const res = await api.post<APIResponse<{ roomId: string; state: BPState }>>(
+    `/matches/${matchId}/resume`,
+    {},
+  )
+  return res.data.data.roomId
+}
+
 // ============================================================================
 // 战队 API
 // ============================================================================

@@ -10,6 +10,8 @@ type GameRepo interface {
 	CreateGame(g *model.Game) (int, error)
 	// SaveBPAction 持久化单步 BP 操作
 	SaveBPAction(a *model.BanPickAction) error
+	// DeleteBPActions 删除某局全部 BP 操作（用于重建前的清理，保证幂等）
+	DeleteBPActions(gameID int) error
 	// UpdateGameBPCompleted 标记该局 BP 完成
 	UpdateGameBPCompleted(gameID int, winner *string) error
 	// GetGameByMatchAndNum 按比赛ID+局号查询

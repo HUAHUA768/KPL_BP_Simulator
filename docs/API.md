@@ -51,10 +51,20 @@
 **判定顺序（后端 `heroCan()`）**：赛事禁用 → 已被禁用 → 已被选择 → 权限表（全局BP记忆） → 是否在池 → 未知
 
 **全局BP记忆规则（跨局）**：每局开始由编排器依据上一局结果派生 `permissions`——
-- 上局红方选了 x → 本局 x：`{blueCanBan:false, blueCanPick:true, redCanBan:true, redCanPick:false}`
-- 上局蓝方选了 y → 本局 y：`{blueCanBan:true, blueCanPick:false, redCanBan:false, redCanPick:true}`
+- 上局某队选了 x → 本局 x：**该队** `可 ban 不可 pick`，**对手** `可选不可 ban`
 - 赛事禁用英雄：`{全部为 false}`
 - 其余英雄：`{全部为 true}`
+
+> ⚠️ **限制跟队伍走，不跟颜色走**（选边后尤其重要）：第 2 局交换红蓝后，
+> 某队上局选过的英雄依然对该队"可 ban 不可选"。后端会用**上一局**的
+> `blue_team_id`/`red_team_id` 把记录的 `side`（颜色）翻译成队伍，再用**本局**归属翻译回颜色。
+> 下表按"该队在本局是蓝方/红方"给出：
+> - 该队本局是**蓝方** → `{blueCanBan:true, blueCanPick:false, redCanBan:false, redCanPick:true}`
+> - 该队本局是**红方** → `{blueCanBan:false, blueCanPick:true, redCanBan:true, redCanPick:false}`
+
+> 💡 **前端应据此提前置灰**：`heroes[].permissions` 是给前端做"预先禁用"用的 ——
+> 当前操作方不可操作的英雄应直接变灰、鼠标禁用，而不是等用户点击后才收到
+> 「受全局BP规则限制」的错误提示。
 
 > 接口响应中，`heroes[].status` 为该英雄的全局状态；若有全局BP记忆，额外携带 `heroes[].permissions` 字段（4 个布尔）供前端按双方视角渲染。
 
@@ -158,7 +168,16 @@
     "bluePicked": [],
     "redPicked": [],
     "heroes": [
-      { "id": 1, "status": "available" }
+      {
+        "id": 1,
+        "status": "available",
+        "permissions": {
+          "blueCanBan": true,
+          "blueCanPick": true,
+          "redCanBan": true,
+          "redCanPick": true
+        }
+      }
     ]
   }
 }
@@ -250,6 +269,48 @@
 - 响应 200：`matchStatus=finished` 的快照
 - 错误：`400` 比赛已结束
 
+### `POST /api/matches/:id/resume` 恢复对局，继续模拟 BP
+
+> **用途**：从「历史对局」里选中一场**未结束**的比赛，回到 BP 房间继续打。
+>
+> 房间（Room）原本只存在于后端内存中，后端重启后 DB 里 `status='ongoing'` 的比赛
+> 就回不到房间。本接口依据已落库数据把房间**重建**出来：
+>
+> | 数据源 | 提供的信息 |
+> |--------|-----------|
+> | `match_record` | 固定身份 team_a/team_b、赛制、大比分、`room_id` |
+> | `game` | 每局红蓝归属、胜方、`bp_completed` |
+> | `ban_pick_action` | 当前局已走的 N 步 → 逐字节回放到第 N 步 |
+>
+> 恢复目标是**当前进度**：
+> - 当前局 BP 未走完 → 停在第 N+1 步继续
+> - 当前局 BP 已走完但未录胜负 → 引擎置为 `finished`，前端直接进结算面板
+
+- 请求体：无（`{}`）
+- 响应 200：
+
+```json
+{
+  "code": 0,
+  "data": {
+    "roomId": "bdf856fe",
+    "state": { "...与 GET /api/rooms/:id/status 完全一致..." }
+  }
+}
+```
+
+- 前端拿到 `roomId` 后跳转 `/room/{roomId}` 即从当前进度继续
+- **幂等**：房间已在内存中时直接复用，不会重复回放
+- 错误：
+  - `400` matchId 格式错误
+  - `404` 比赛记录不存在
+  - `400` 该比赛已结束，无法继续
+  - `500` 恢复对局失败（如历史步骤与 20 步状态机序列不自洽）
+
+> ⚠️ **前提：BP 步骤必须已落库**。房间层现在会**每步增量写入** `ban_pick_action`
+> （见 `RoomHandler.persistAction`），因此中途退出/重启都能恢复；
+> 若某步落库失败，恢复时会缺步，日志中会有 `[room] 第N步落库失败` 记录。
+
 ---
 
 ## 战队相关
@@ -332,11 +393,17 @@
 
 | 字段 | 说明 |
 |------|------|
-| `teamAId` / `teamBId` | 蓝方 / 红方队伍（本模拟器全程不换边） |
-| `teamAScore` / `teamBScore` | 大比分（蓝 / 红已胜局数） |
+| `id` | 系列赛 ID，可用于 `POST /api/matches/:id/resume` 恢复对局 |
+| `teamAId` / `teamBId` | **固定队伍身份**，与红蓝归属无关（换边不变） |
+| `teamAScore` / `teamBScore` | 大比分（按队伍身份记账；红蓝视图见房间快照） |
 | `boFormat` | 赛制：5 / 7 / 0 |
-| `status` | 系列赛状态：`ongoing` / `finished` |
-| `games[]` | 该系列赛每局明细，元素结构同 `GET /api/games` |
+| `status` | 系列赛状态：`ongoing` / `finished`；**`ongoing` 才可恢复** |
+| `currentGameNum` | 当前进行到第几局 |
+| `games[]` | 该系列赛每局明细；**每局的 `blueTeamId` / `redTeamId` 才是该局真实红蓝归属** |
+
+> ⚠️ **红蓝归属是"每局"概念**：第 2 局起可能换边（单机由用户选、联机由败方选），
+> 因此展示每局阵容/禁用/胜方时，必须用**该局**的 `game.blueTeamId` / `game.redTeamId`
+> 解析真实队名，不能沿用头部的 `teamAId` / `teamBId`。
 
 > 历史页即以此接口一次取回"系列赛 + 每局 BP"，避免前端二次拼接。
 

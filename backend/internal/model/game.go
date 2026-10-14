@@ -29,8 +29,10 @@ type MatchRecord struct {
 	CurrentGameNum   int       `json:"currentGameNum"   gorm:"column:current_game_num"`
 	BoFormat         int       `json:"boFormat"         gorm:"column:bo_format"` // 5=BO5, 7=BO7, 0=无限制
 	SidePickerTeamID *int      `json:"sidePickerTeamId" gorm:"column:side_picker_team_id"`
-	Status           string    `json:"status"           gorm:"column:status"`
-	CreatedAt        time.Time `json:"createdAt"        gorm:"column:created_at"`
+	// RoomID 房间号。用于从对局记录恢复房间（"继续模拟 BP"）；旧数据可为 NULL。
+	RoomID    *string   `json:"roomId"           gorm:"column:room_id"`
+	Status    string    `json:"status"           gorm:"column:status"`
+	CreatedAt time.Time `json:"createdAt"        gorm:"column:created_at"`
 }
 
 // TableName 指定表名

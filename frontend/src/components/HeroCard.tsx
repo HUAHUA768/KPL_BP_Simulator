@@ -46,6 +46,11 @@ interface HeroCardProps {
   /** 当前不是本方操作回合：仅弱化显示，不算“不可用” */
   blocked?: boolean
   owner?: string | null // 'banned_blue' | 'banned_red' | 'picked_blue' | 'picked_red' | null
+  /**
+   * 受全局BP规则限制（问题3/4）：当前操作方不可 ban/pick 此英雄。
+   * 直接灰化 + 禁用光标，而非点击后才提示无效。
+   */
+  restricted?: boolean
   onClick?: (hero: Hero) => void
 }
 
@@ -54,9 +59,12 @@ const HeroCard: React.FC<HeroCardProps> = ({
   disabled = false,
   blocked = false,
   owner = null,
+  restricted = false,
   onClick,
 }) => {
   const getBorderColor = () => {
+    // 受限英雄（问题3/4）：灰化边框，与"被 ban/pick 用过"的红蓝边框区分
+    if (restricted && !owner) return 'border-gray-700 bg-gray-800/40'
     switch (owner) {
       case 'banned_blue':
         return 'border-blue-500 bg-blue-900/30'
@@ -85,32 +93,39 @@ const HeroCard: React.FC<HeroCardProps> = ({
     }
   }
 
-  const isClickable = !disabled && !blocked && !owner && !!onClick
+  const isClickable = !disabled && !blocked && !owner && !restricted && !!onClick
   const badge = getBadge()
   const isBanned = owner === 'banned_blue' || owner === 'banned_red'
+  // 受限英雄需要灰化（问题3/4）：与"已被 ban/pick"同样灰，但加「限」角标区分
+  const isDimmed = !!owner || restricted
 
   return (
     <button
       type="button"
       disabled={!isClickable}
       onClick={() => isClickable && onClick?.(hero)}
-      title={hero.name}
+      title={
+        restricted && !owner
+          ? `${hero.name}（受全局BP规则限制，此方不可 ban/pick）`
+          : hero.name
+      }
       className={`
         flex w-full min-w-0 flex-col items-center overflow-hidden rounded-md border-2 p-0.5
         text-left transition-all duration-200 ${getBorderColor()}
         ${isClickable ? 'cursor-pointer hover:scale-105 hover:shadow-lg hover:shadow-yellow-500/20' : 'cursor-not-allowed'}
         ${disabled ? 'opacity-40' : ''}
         ${blocked ? 'opacity-60' : ''}
+        ${restricted && !disabled && !blocked ? 'opacity-50' : ''}
       `}
     >
       {/* 正方形图标框：宽高一致，图片 object-cover 居中裁切 */}
       <div className="relative w-full overflow-hidden rounded bg-gray-900/60 aspect-square">
-        {/* 已用英雄整图灰化：彩色=可选，灰色=已被 ban/pick，形成强对比 */}
+        {/* 已用 / 受限英雄整图灰化：彩色=可选，灰色=不可操作，形成强对比 */}
         <HeroIcon
           src={hero.iconPath}
           name={hero.name}
           className={`absolute inset-0 h-full w-full ${
-            owner ? 'grayscale brightness-50' : ''
+            isDimmed ? 'grayscale brightness-50' : ''
           }`}
         />
         {/* 被 ban 的英雄叠加醒目红✕（保留「禁」角标，双重可辨） */}
@@ -118,6 +133,14 @@ const HeroCard: React.FC<HeroCardProps> = ({
           <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <span className="text-4xl font-black leading-none text-red-500 drop-shadow-[0_0_4px_rgba(0,0,0,0.9)]">
               ✕
+            </span>
+          </span>
+        )}
+        {/* 受限英雄（问题3/4）：叠加「限」角标，说明是规则限制而非被用过 */}
+        {restricted && !owner && (
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="rounded bg-gray-900/80 px-1.5 py-0.5 text-sm font-black leading-none text-gray-300">
+              限
             </span>
           </span>
         )}
@@ -132,7 +155,7 @@ const HeroCard: React.FC<HeroCardProps> = ({
       {/* 固定高度的名称行：无论名称长短，卡片高度都一致 */}
       <span
         className={`mt-0.5 w-full truncate text-center text-[10px] leading-tight ${
-          owner ? 'text-gray-400' : 'text-white'
+          isDimmed ? 'text-gray-500' : 'text-white'
         }`}
       >
         {hero.name}

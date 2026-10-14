@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"kpl-bp-simulator/internal/model"
+	"kpl-bp-simulator/internal/service"
 )
 
 // ============================================================================
@@ -35,6 +36,11 @@ func sidePickerOut(v *int) interface{} {
 		return nil
 	}
 	return *v
+}
+
+// heroStatusString 把引擎的 HeroStatus 转成前端契约字符串
+func heroStatusString(s service.HeroStatus) string {
+	return s.String()
 }
 
 // teamBrief 返回前端展示所需的队伍摘要（id / name / logoUrl）。

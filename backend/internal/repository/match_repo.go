@@ -24,6 +24,10 @@ type MatchRepo interface {
 	UpdateProgress(id, aScore, bScore, currentGameNum int, status string) error
 	// UpdateSidePicker 更新"当前拥有选边权的队伍"（联机模式 = 败方；单机为预留）
 	UpdateSidePicker(id, teamID int) error
+	// SetRoomID 把房间号写入比赛记录，使"比赛记录 → 房间"可反查（恢复对局用）
+	SetRoomID(id int, roomID string) error
+	// GetByRoomID 按房间号反查比赛记录（恢复房间时用）
+	GetByRoomID(roomID string) (*model.MatchRecord, error)
 	// ListRecent 查询最近 limit 场比赛（按 id DESC）
 	ListRecent(limit int) ([]*model.MatchRecord, error)
 }

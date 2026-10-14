@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { MatchCard } from '../components/GameResultTable'
-import { getMatches, getHeroes, getTeams } from '../services/api'
+import { getMatches, getHeroes, getTeams, resumeMatch } from '../services/api'
 import type { MatchRecord, Hero, Team } from '../types'
 
 const HistoryPage: React.FC = () => {
@@ -11,6 +11,22 @@ const HistoryPage: React.FC = () => {
   const [teams, setTeams] = useState<Team[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // 正在恢复的比赛 id（禁用按钮，防重复点击）
+  const [resumingId, setResumingId] = useState<number | null>(null)
+
+  // 恢复对局：拿回 roomId 后跳转到 BP 房间，从当前进度继续
+  const handleResume = async (match: MatchRecord) => {
+    if (resumingId !== null) return
+    setResumingId(match.id)
+    setError(null)
+    try {
+      const roomId = await resumeMatch(match.id)
+      navigate(`/room/${roomId}`)
+    } catch (err: any) {
+      setError('恢复对局失败: ' + (err?.response?.data?.message || err.message))
+      setResumingId(null)
+    }
+  }
 
   useEffect(() => {
     Promise.all([getMatches(), getHeroes(), getTeams().catch(() => [] as Team[])])
@@ -76,6 +92,8 @@ const HistoryPage: React.FC = () => {
               match={match}
               getTeamName={getTeamName}
               getHeroName={getHeroName}
+              onResume={handleResume}
+              resuming={resumingId === match.id}
             />
           ))
         )}

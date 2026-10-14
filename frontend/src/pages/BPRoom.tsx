@@ -451,6 +451,7 @@ const BPRoom: React.FC = () => {
           actorSide={actorSide}
           blueTeam={bpState.blueTeam}
           redTeam={bpState.redTeam}
+          heroStates={bpState.heroes}
         />
       </div>
     </div>

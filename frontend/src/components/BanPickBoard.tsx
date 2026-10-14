@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react'
 import HeroCard, { HeroIcon } from './HeroCard'
-import type { Hero, TeamBrief } from '../types'
+import type { Hero, TeamBrief, HeroState } from '../types'
 
 interface BanPickBoardProps {
   // 英雄池（当前分路过滤后用于展示）
@@ -27,6 +27,9 @@ interface BanPickBoardProps {
   // 双方队名 + 队标（问题1）；缺失时降级显示"🔵 蓝方 / 红方 🔴"
   blueTeam?: TeamBrief | null
   redTeam?: TeamBrief | null
+
+  // 每英雄的 ban/pick 权限（问题3/4）；用于提前置灰受限英雄
+  heroStates?: HeroState[]
 }
 
 type SideName = 'blue' | 'red'
@@ -248,6 +251,7 @@ const BanPickBoard: React.FC<BanPickBoardProps> = ({
   actorSide,
   blueTeam,
   redTeam,
+  heroStates,
 }) => {
   // 查名字 / 图标始终使用完整列表
   const heroMap = useMemo(() => {
@@ -272,12 +276,45 @@ const BanPickBoard: React.FC<BanPickBoardProps> = ({
     return null
   }
 
-  const isHeroActionable = (heroId: number): boolean => getHeroOwner(heroId) === null
-
   // 门控：solo 下 actorSide === side 恒真；dual 下即旧的等待语义
   const inProgress = action === 'ban' || action === 'pick'
   const isMyTurnNow = actorSide === side && inProgress
   const tone = side === 'red' ? SIDE_TONE.red : SIDE_TONE.blue
+
+  // ---------------------------------------------------------------------------
+  // 全局BP记忆权限（问题3/4）
+  //
+  // 后端把每个英雄对蓝/红两方的 ban/pick 权限随状态下发，前端据此**提前**判断
+  // 当前操作方能否操作该英雄，从而直接置灰禁用 —— 而不是等用户点下去才弹错误提示。
+  //
+  // 找不到权限信息时（如旧快照）保守放行，由后端做最终裁决，避免误禁用。
+  // ---------------------------------------------------------------------------
+  const permMap = useMemo(() => {
+    const m = new Map<number, NonNullable<HeroState['permissions']>>()
+    ;(heroStates || []).forEach((h) => {
+      if (h.permissions) m.set(h.id, h.permissions)
+    })
+    return m
+  }, [heroStates])
+
+  /** 当前方（side）+ 当前动作（ban/pick）下，该英雄是否被全局BP规则禁止 */
+  const isBlockedByRule = (heroId: number): boolean => {
+    if (!inProgress) return false
+    const p = permMap.get(heroId)
+    if (!p) return false // 无权限信息 → 交给后端裁决
+
+    return action === 'ban'
+      ? side === 'blue'
+        ? !p.blueCanBan
+        : !p.redCanBan
+      : side === 'blue'
+        ? !p.blueCanPick
+        : !p.redCanPick
+  }
+
+  // 可点击 = 未被 ban/pick 使用 + 未被规则限制
+  const isHeroActionable = (heroId: number): boolean =>
+    getHeroOwner(heroId) === null && !isBlockedByRule(heroId)
 
   const handleHeroClick = (hero: Hero) => {
     if (!isHeroActionable(hero.id)) return
@@ -463,6 +500,8 @@ const BanPickBoard: React.FC<BanPickBoardProps> = ({
                       disabled={!isHeroActionable(hero.id)}
                       blocked={!isMyTurnNow}
                       owner={getHeroOwner(hero.id)}
+                      // 受限英雄（问题3/4）：直接变灰禁用，区别于"被 ban/pick 用过"
+                      restricted={isBlockedByRule(hero.id)}
                       onClick={handleHeroClick}
                     />
                   </li>
